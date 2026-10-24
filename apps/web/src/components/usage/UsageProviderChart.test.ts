@@ -50,9 +50,11 @@ describe("buildPeriodColumns", () => {
         day: "2026-08-01",
         costUsd: 30,
         totalTokens: 300,
+        aiCredits: 7,
         byProvider: new Map([
-          ["codex" as const, { costUsd: 10, totalTokens: 100 }],
-          ["claude" as const, { costUsd: 20, totalTokens: 200 }],
+          ["codex" as const, { costUsd: 10, totalTokens: 100, aiCredits: 0 }],
+          ["claude" as const, { costUsd: 20, totalTokens: 200, aiCredits: 0 }],
+          ["copilot" as const, { costUsd: 0, totalTokens: 0, aiCredits: 7 }],
         ]),
       },
     ],
@@ -63,7 +65,8 @@ describe("buildPeriodColumns", () => {
         day: "2026-08-03",
         costUsd: 5,
         totalTokens: 50,
-        byProvider: new Map([["claude" as const, { costUsd: 5, totalTokens: 50 }]]),
+        aiCredits: 0,
+        byProvider: new Map([["claude" as const, { costUsd: 5, totalTokens: 50, aiCredits: 0 }]]),
       },
     ],
   ]);
@@ -80,6 +83,13 @@ describe("buildPeriodColumns", () => {
     ]);
   });
 
+  it("reads AI credits, which only Copilot reports", () => {
+    const [first, , last] = buildPeriodColumns(days, byDay, "aic");
+    expect([first?.total, last?.total]).toEqual([7, 0]);
+    expect(first?.bands.find((band) => band.provider === "copilot")?.value).toBe(7);
+    expect(first?.bands.find((band) => band.provider === "claude")?.value).toBe(0);
+  });
+
   it("keeps band values absolute rather than cumulative", () => {
     // Regression: the bands were once stack offsets, which drew Claude Code
     // permanently above Codex regardless of which provider spent more.
@@ -92,6 +102,7 @@ describe("buildPeriodColumns", () => {
       { provider: "cursor", value: 0 },
       { provider: "opencode", value: 0 },
       { provider: "antigravity", value: 0 },
+      { provider: "copilot", value: 0 },
     ]);
   });
 
@@ -107,10 +118,11 @@ describe("providersWithUsage", () => {
   it("omits providers with no cost or tokens", () => {
     expect(
       providersWithUsage([
-        { provider: "codex", costUsd: 0, totalTokens: 0 },
-        { provider: "claude", costUsd: 0, totalTokens: 200 },
+        { provider: "codex", costUsd: 0, totalTokens: 0, aiCredits: 0 },
+        { provider: "claude", costUsd: 0, totalTokens: 200, aiCredits: 0 },
+        { provider: "copilot", costUsd: 0, totalTokens: 0, aiCredits: 3 },
       ]),
-    ).toEqual(["claude"]);
+    ).toEqual(["claude", "copilot"]);
   });
 });
 
@@ -124,7 +136,8 @@ describe("hourly chart columns", () => {
           hourStart: "2026-08-11T09:37:00.000Z",
           costUsd: 4,
           totalTokens: 40,
-          byProvider: new Map([["codex" as const, { costUsd: 4, totalTokens: 40 }]]),
+          aiCredits: 0,
+          byProvider: new Map([["codex" as const, { costUsd: 4, totalTokens: 40, aiCredits: 0 }]]),
         },
       ],
     ]);

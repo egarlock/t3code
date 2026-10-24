@@ -6,6 +6,8 @@ type UsageProviderPresentation = {
   readonly label: string;
   readonly color: string;
   readonly driverKind: ProviderDriverKind;
+  /** Registry agent whose icon stands in for ACP-backed providers. */
+  readonly acpRegistryAgentId?: string;
 };
 
 /**
@@ -13,7 +15,7 @@ type UsageProviderPresentation = {
  * Declaration order is reused by every chart and table, so adding a provider
  * only requires its contract support and one entry here.
  */
-export const PROVIDER_PRESENTATION = {
+export const PROVIDER_PRESENTATION: Record<UsageProviderKind, UsageProviderPresentation> = {
   codex: {
     label: "Codex",
     color: "var(--contrast-foreground)",
@@ -41,7 +43,13 @@ export const PROVIDER_PRESENTATION = {
     color: "#8c7bd1",
     driverKind: ProviderDriverKind.make("antigravity"),
   },
-} satisfies Record<UsageProviderKind, UsageProviderPresentation>;
+  copilot: {
+    label: "GitHub Copilot",
+    color: "#6e40c9",
+    driverKind: ProviderDriverKind.make("acpRegistry"),
+    acpRegistryAgentId: "github-copilot-cli",
+  },
+};
 
 /** Stable provider reading order across charts, summaries, tables, and hover rows. */
 export const PROVIDER_ORDER = Object.keys(PROVIDER_PRESENTATION) as UsageProviderKind[];
@@ -52,11 +60,12 @@ export function providersWithUsage(
     readonly provider: UsageProviderKind;
     readonly costUsd: number;
     readonly totalTokens: number;
+    readonly aiCredits: number;
   }[],
 ): readonly UsageProviderKind[] {
   const active = new Set(
     totals
-      .filter((entry) => entry.totalTokens > 0 || entry.costUsd > 0)
+      .filter((entry) => entry.totalTokens > 0 || entry.costUsd > 0 || entry.aiCredits > 0)
       .map((entry) => entry.provider),
   );
   return PROVIDER_ORDER.filter((provider) => active.has(provider));

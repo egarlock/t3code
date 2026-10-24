@@ -38,6 +38,7 @@ export const UsageProviderKind = Schema.Literals([
   "cursor",
   "opencode",
   "antigravity",
+  "copilot",
 ]);
 export type UsageProviderKind = typeof UsageProviderKind.Type;
 
@@ -131,6 +132,8 @@ export const UsageBucket = Schema.Struct({
   ultrafastCostUsd: Schema.optional(Schema.Number),
   /** What fast and ultrafast requests cost above the standard rate. Absent when zero. */
   speedPremiumUsd: Schema.optional(Schema.Number),
+  /** GitHub Copilot AI credits billed. Absent when zero; only Copilot reports them. */
+  aiCredits: Schema.optional(Schema.Number),
   costSource: UsageCostSource,
   /** Distinct assistant responses, after de-duplication. */
   records: NonNegativeInt,

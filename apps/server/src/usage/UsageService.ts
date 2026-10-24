@@ -303,6 +303,42 @@ export const make = Effect.gen(function* () {
       fileName?: string;
     }> = [];
     const seen = new Set<string>();
+    const addSource = Effect.fnUntraced(function* (
+      provider: UsageProviderKind,
+      directory: string,
+      fileName: string | undefined,
+    ) {
+      const sourceKey = provider + "\0" + directory;
+      const previous = sourceCache.get(sourceKey);
+      // Keep canonical paths and source fingerprints stable after root cleanup,
+      // including aliases and clients merging pre-cleanup environment summaries.
+      const dir = yield* fileSystem
+        .realPath(directory)
+        .pipe(Effect.orElseSucceed(() => previous?.dir ?? directory));
+      const currentVolumeId = yield* Effect.promise(() => readDirectoryVolumeId(dir));
+      const hasRetainedHistory = fileCache
+        .entries()
+        .some(
+          ([filePath, entry]) =>
+            entry.provider === provider &&
+            entry.mtimeMs >= retentionCutoffMs &&
+            entry.records.length + entry.tailRecords.length > 0 &&
+            isWithinDirectory(filePath, dir),
+        );
+      // A recreated directory still reports the retained history under its old identity.
+      const volumeId =
+        previous?.dir === dir && (hasRetainedHistory || !currentVolumeId)
+          ? previous.volumeId || currentVolumeId
+          : currentVolumeId;
+      if (previous?.dir !== dir || previous.volumeId !== volumeId) {
+        sourceCache.set(sourceKey, { dir, volumeId });
+        cacheDirty = true;
+      }
+      const key = `${provider}\0${dir}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      dirs.push({ provider, dir, volumeId, ...(fileName === undefined ? {} : { fileName }) });
+    });
     for (const driver of ["claudeAgent", "codex", "grok"] as const) {
       // Disabled accounts still have history. Explicit default slots replace
       // the legacy settings, just as they do in the provider registry.
@@ -347,44 +383,19 @@ export const make = Effect.gen(function* () {
             environment.GROK_HOME?.trim() || path.join(NodeOS.homedir(), ".grok"),
           );
         }
-        const directory = path.resolve(home, provider === "claude" ? "projects" : "sessions");
-        const sourceKey = provider + "\0" + directory;
-        const previous = sourceCache.get(sourceKey);
-        // Keep canonical paths and source fingerprints stable after root cleanup,
-        // including aliases and clients merging pre-cleanup environment summaries.
-        const dir = yield* fileSystem
-          .realPath(directory)
-          .pipe(Effect.orElseSucceed(() => previous?.dir ?? directory));
-        const currentVolumeId = yield* Effect.promise(() => readDirectoryVolumeId(dir));
-        const hasRetainedHistory = fileCache
-          .entries()
-          .some(
-            ([filePath, entry]) =>
-              entry.provider === provider &&
-              entry.mtimeMs >= retentionCutoffMs &&
-              entry.records.length + entry.tailRecords.length > 0 &&
-              isWithinDirectory(filePath, dir),
-          );
-        // A recreated directory still reports the retained history under its old identity.
-        const volumeId =
-          previous?.dir === dir && (hasRetainedHistory || !currentVolumeId)
-            ? previous.volumeId || currentVolumeId
-            : currentVolumeId;
-        if (previous?.dir !== dir || previous.volumeId !== volumeId) {
-          sourceCache.set(sourceKey, { dir, volumeId });
-          cacheDirty = true;
-        }
-        const key = `${provider}\0${dir}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        dirs.push({
+        yield* addSource(
           provider,
-          dir,
-          volumeId,
-          ...(provider === "grok" ? { fileName: "updates.jsonl" } : {}),
-        });
+          path.resolve(home, provider === "claude" ? "projects" : "sessions"),
+          provider === "grok" ? "updates.jsonl" : undefined,
+        );
       }
     }
+    // Copilot CLI runs through the ACP registry, so there is no driver config
+    // to read; its session logs live under the host's Copilot home.
+    const copilotHome = expandHomePath(
+      hostEnvironment.COPILOT_HOME?.trim() || path.join(NodeOS.homedir(), ".copilot"),
+    );
+    yield* addSource("copilot", path.resolve(copilotHome, "session-state"), "events.jsonl");
     return dirs;
   });
 

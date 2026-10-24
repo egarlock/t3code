@@ -281,6 +281,19 @@ describe("UsageAggregator", () => {
 
     expect(result.buckets).toHaveLength(3);
   });
+
+  it("sums Copilot AI credits and omits them from buckets without any", () => {
+    const result = aggregate([
+      record({ provider: "copilot", aiCredits: 1.5 }),
+      record({ provider: "copilot", aiCredits: 0.25 }),
+      record(),
+    ]);
+
+    const copilot = result.buckets.find((bucket) => bucket.provider === "copilot");
+    const claude = result.buckets.find((bucket) => bucket.provider === "claude");
+    expect(copilot?.aiCredits).toBe(1.75);
+    expect(claude?.aiCredits).toBeUndefined();
+  });
 });
 
 describe("resolveModelAliases", () => {

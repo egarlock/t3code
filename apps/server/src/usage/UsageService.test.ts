@@ -109,6 +109,7 @@ const serviceLayers = (input: {
       Layer.succeed(HostProcessEnvironment, {
         HOME: input.home,
         GROK_HOME: NodePath.join(input.home, "grok"),
+        COPILOT_HOME: NodePath.join(input.home, "copilot"),
         OPENCODE_DATA_DIR: NodePath.join(input.home, "opencode"),
         ANTIGRAVITY_DATA_DIR: NodePath.join(input.home, "antigravity"),
         XDG_CONFIG_HOME: NodePath.join(input.home, "config"),
@@ -750,6 +751,57 @@ describe("UsageService", () => {
         Effect.provide(
           serviceLayers({ prefix: "usage-service-price-overrides-test", home, settings }),
         ),
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("reads Copilot sessions with AI credits, crediting subagent calls to the session", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      const sessionDir = NodePath.join(home, "copilot", "session-state", "session-1");
+      const usageLine = (usageId: string, outputTokens: number, totalNanoAiu?: number) =>
+        encodeUnknownJsonString({
+          type: "session.usage_record",
+          timestamp: "2026-08-01T10:00:00Z",
+          data: {
+            usage: {
+              model: "claude-opus-5.5",
+              inputTokens: 10,
+              outputTokens,
+              accounting: { usageId },
+              ...(totalNanoAiu === undefined ? {} : { copilotUsage: { totalNanoAiu } }),
+            },
+          },
+        }) + "\n";
+      yield* Effect.promise(async () => {
+        await NodeFSP.mkdir(sessionDir, { recursive: true });
+        await NodeFSP.writeFile(
+          NodePath.join(sessionDir, "events.jsonl"),
+          usageLine("u1", 5, 1_500_000_000) +
+            // A subagent call, logged in its parent's file.
+            usageLine("u2", 7, 500_000_000) +
+            // A bring-your-own-key call bills no credits.
+            usageLine("u3", 3) +
+            usageLine("u1", 5, 1_500_000_000),
+        );
+        await NodeFSP.writeFile(NodePath.join(sessionDir, "other.jsonl"), usageLine("u4", 99, 1));
+      });
+
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(serviceLayers({ prefix: "usage-service-copilot-test", home, settings })),
+      );
+      const summary = yield* service.readSummary(WINDOW);
+
+      const copilot = summary.buckets.filter((bucket) => bucket.provider === "copilot");
+      assert.strictEqual(totalOutputTokens({ buckets: copilot }), 15);
+      assert.strictEqual(
+        copilot.reduce((sum, bucket) => sum + (bucket.aiCredits ?? 0), 0),
+        2,
+      );
+      assert.strictEqual(
+        summary.sources.find((source) => source.fingerprint.provider === "copilot")
+          ?.distinctSessions,
+        1,
       );
     }).pipe(Effect.scoped),
   );

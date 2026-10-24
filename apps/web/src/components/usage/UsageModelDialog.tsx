@@ -1,4 +1,4 @@
-import { formatPercent, formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
+import { formatAic, formatPercent, formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import { isModelCostUnknown, type ModelTotals } from "@t3tools/shared/usageMerge";
 import { useMemo } from "react";
 
@@ -68,6 +68,7 @@ export function UsageModelDialog({
   const perMillion = costPerMillionTokens(model);
   const stats = [
     { label: "Cost", value: costUnknown ? "Unpriced" : formatUsd(model.costUsd) },
+    model.aiCredits > 0 ? { label: "AI credits", value: formatAic(model.aiCredits) } : null,
     { label: "Tokens", value: formatTokens(model.totalTokens) },
     perMillion === null ? null : { label: "Per 1M tokens", value: formatUsd(perMillion) },
     hitRate === null ? null : { label: "Cache hit", value: formatPercent(hitRate) },
@@ -86,6 +87,7 @@ export function UsageModelDialog({
             <ProviderInstanceIcon
               driverKind={presentation.driverKind}
               displayName={presentation.label}
+              acpRegistryAgentId={presentation.acpRegistryAgentId}
               iconClassName="size-5"
             />
             <DialogTitle>{model.model}</DialogTitle>
@@ -106,14 +108,14 @@ export function UsageModelDialog({
               ))}
             </div>
 
-            {/* Unpriced cost is unknown, not zero, so its trend shows tokens. */}
+            {/* Unpriced cost is unknown, not zero, so its cost trend shows tokens. */}
             <UsageProviderChart
               providers={providers}
               days={chartWindow.days}
               daily={usage.daily}
               hours={chartWindow.hours}
               hourly={usage.hourly}
-              metric={costUnknown ? "tokens" : metric}
+              metric={costUnknown && metric === "cost" ? "tokens" : metric}
               referenceTime={chartWindow.referenceTime}
               resolution={chartWindow.resolution}
               timeZone={chartWindow.timeZone}

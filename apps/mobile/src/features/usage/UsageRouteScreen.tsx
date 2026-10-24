@@ -144,6 +144,7 @@ export function UsageRouteScreen() {
             day: hour.hourStart,
             costUsd: hour.costUsd,
             totalTokens: hour.totalTokens,
+            aiCredits: hour.aiCredits,
             byProvider: hour.byProvider,
           }))
         : merged.daily,

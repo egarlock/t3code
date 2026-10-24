@@ -3,12 +3,20 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   enumerateHourStarts,
+  formatAic,
   formatDateTimeShort,
   formatHourShort,
   formatPercent,
   formatRelativeHourShort,
   makeWindow,
 } from "./usageFormat.ts";
+
+describe("formatAic", () => {
+  it("shows credits to two decimals with a unit", () => {
+    expect(formatAic(0)).toBe("0.00 AIC");
+    expect(formatAic(1234.567)).toBe("1,234.57 AIC");
+  });
+});
 
 describe("formatPercent", () => {
   it("distinguishes a small positive share from zero", () => {

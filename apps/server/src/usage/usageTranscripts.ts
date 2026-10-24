@@ -34,6 +34,8 @@ export interface UsageRecord {
    * unique and needs no dedup.
    */
   readonly dedupeKey: string | null;
+  /** GitHub Copilot AI credits billed for the request. Only Copilot reports them. */
+  readonly aiCredits?: number;
 }
 
 const EMPTY_TOTALS: UsageTokenTotals = {
@@ -74,6 +76,7 @@ export function totalTokens(totals: UsageTokenTotals): number {
 export function mightCarryUsage(line: string, provider: UsageProviderKind): boolean {
   if (provider === "claude") return line.includes('"usage"');
   if (provider === "grok") return line.includes('"turn_completed"');
+  if (provider === "copilot") return line.includes('"session.usage_record"');
   return line.includes('"token_count"');
 }
 
@@ -525,6 +528,96 @@ export function parseGrokRecord(parsed: unknown): readonly UsageRecord[] {
     });
   }
   return results;
+}
+
+/* -------------------------------------------------------------------------- */
+/* GitHub Copilot CLI                                                         */
+/* -------------------------------------------------------------------------- */
+
+/** Copilot reports AI credits in billionths (`totalNanoAiu`). */
+export const COPILOT_NANO_AIU_PER_CREDIT = 1_000_000_000;
+
+/**
+ * Parses one line of a Copilot CLI `session-state/<id>/events.jsonl` log.
+ *
+ * Each model call writes one `session.usage_record`. Subagent calls are logged
+ * in the parent session's file, so `sessionId` is the folder the file lives in
+ * and every record is counted exactly once.
+ */
+export function parseCopilotLine(line: string, sessionId: string): UsageRecord | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  return parseCopilotRecord(parsed, sessionId);
+}
+
+export function parseCopilotRecord(parsed: unknown, sessionId: string): UsageRecord | null {
+  if (typeof parsed !== "object" || parsed === null) return null;
+
+  const record = parsed as Record<string, unknown>;
+  if (record["type"] !== "session.usage_record") return null;
+
+  const data = record["data"];
+  if (typeof data !== "object" || data === null) return null;
+  const usage = (data as Record<string, unknown>)["usage"];
+  if (typeof usage !== "object" || usage === null) return null;
+  const usageRecord = usage as Record<string, unknown>;
+
+  const timestampMs = parseTimestampMs(record["timestamp"]);
+  if (timestampMs === null) return null;
+
+  const model = typeof usageRecord["model"] === "string" ? usageRecord["model"] : "";
+  if (model.length === 0) return null;
+
+  const inputTokens = int(usageRecord["inputTokens"]);
+  const cachedInputTokens = int(usageRecord["cacheReadTokens"]);
+  const cacheCreationTokens = int(usageRecord["cacheWriteTokens"]);
+  const outputTokens = int(usageRecord["outputTokens"]);
+  const totals: UsageTokenTotals = {
+    // Copilot reports `inputTokens` inclusive of cache reads and writes.
+    uncachedInputTokens: Math.max(0, inputTokens - cachedInputTokens - cacheCreationTokens),
+    cachedInputTokens,
+    cacheCreationTokens,
+    outputTokens,
+    reasoningTokens: Math.min(outputTokens, int(usageRecord["reasoningTokens"])),
+  };
+  if (totalTokens(totals) === 0) return null;
+
+  const accounting = usageRecord["accounting"];
+  const usageId =
+    typeof accounting === "object" && accounting !== null
+      ? (accounting as Record<string, unknown>)["usageId"]
+      : undefined;
+  const requestId = [usageId, usageRecord["serviceRequestId"], usageRecord["apiCallId"]].find(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+
+  // Bring-your-own-key calls carry no Copilot billing block.
+  const copilotUsage = usageRecord["copilotUsage"];
+  const nanoAiu =
+    typeof copilotUsage === "object" && copilotUsage !== null
+      ? (copilotUsage as Record<string, unknown>)["totalNanoAiu"]
+      : undefined;
+  const aiCredits =
+    typeof nanoAiu === "number" && Number.isFinite(nanoAiu) && nanoAiu > 0
+      ? nanoAiu / COPILOT_NANO_AIU_PER_CREDIT
+      : 0;
+
+  return {
+    provider: "copilot",
+    timestampMs,
+    model,
+    sessionId,
+    totals,
+    // Copilot bills in AI credits, not dollars; cost comes from list rates.
+    reportedCostUsd: null,
+    speed: "standard",
+    dedupeKey: requestId === undefined ? null : `copilot:${requestId}`,
+    ...(aiCredits > 0 ? { aiCredits } : {}),
+  };
 }
 
 export { EMPTY_TOTALS };

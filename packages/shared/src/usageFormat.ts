@@ -17,8 +17,18 @@ const CURRENCY = new Intl.NumberFormat("en-US", {
 
 const INTEGER = new Intl.NumberFormat("en-US");
 
+const CREDITS = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 export function formatUsd(value: number): string {
   return CURRENCY.format(value);
+}
+
+/** GitHub Copilot AI credits, such as `1,234.56 AIC`. */
+export function formatAic(value: number): string {
+  return `${CREDITS.format(value)} AIC`;
 }
 
 export function formatCount(value: number): string {
