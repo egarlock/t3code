@@ -40,7 +40,9 @@ export PATH
 marker="$(mktemp -t t3code-update-marker)"
 if [ "$skip_build" = false ]; then
   echo "Building $APP_NAME from $(git rev-parse --short HEAD) (about 10 to 15 minutes)..."
-  vp run dist:desktop:dmg:arm64
+  # Only the zip is installed. Skipping the DMG also avoids dmgbuild failing when
+  # Spotlight or endpoint security holds its scratch volume busy.
+  node scripts/build-desktop-artifact.ts --platform mac --target zip --arch arm64
 fi
 
 zip_path="$(ls -t release/T3-Code-*-arm64.zip 2>/dev/null | head -n 1 || true)"
