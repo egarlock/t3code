@@ -7,6 +7,7 @@ import {
   formatDayShort,
   formatHourShort,
   formatRelativeHourShort,
+  formatAic,
   formatTokens,
   formatUsd,
 } from "@t3tools/shared/usageFormat";
@@ -17,7 +18,23 @@ const VIEW_HEIGHT = 260;
 const TICK_COUNT = 4;
 const PLOT_TOP = 8;
 
-export type UsageChartMetric = "tokens" | "cost";
+export type UsageChartMetric = "tokens" | "cost" | "aic";
+
+/** Reads the charted figure from any total that carries all three metrics. */
+export function metricValue(
+  entry: { readonly costUsd: number; readonly totalTokens: number; readonly aiCredits: number },
+  metric: UsageChartMetric,
+): number {
+  if (metric === "tokens") return entry.totalTokens;
+  if (metric === "aic") return entry.aiCredits;
+  return entry.costUsd;
+}
+
+export function formatMetric(metric: UsageChartMetric): (value: number) => string {
+  if (metric === "tokens") return formatTokens;
+  if (metric === "aic") return formatAic;
+  return formatUsd;
+}
 
 interface UsageProviderChartProps {
   readonly providers: readonly UsageProviderKind[];
@@ -52,7 +69,7 @@ function valueFor(
 ): number {
   const entry = totals?.byProvider.get(provider);
   if (entry === undefined) return 0;
-  return metric === "tokens" ? entry.totalTokens : entry.costUsd;
+  return metricValue(entry, metric);
 }
 
 export function buildPeriodColumns(
@@ -248,7 +265,7 @@ export function UsageProviderChart({
     };
   }, [byPeriod, metric, periods, providers]);
 
-  const format = metric === "tokens" ? formatTokens : formatUsd;
+  const format = formatMetric(metric);
 
   const positionTooltip = useCallback(() => {
     const plot = plotRef.current;
@@ -345,7 +362,7 @@ export function UsageProviderChart({
             viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
             preserveAspectRatio="none"
             role="img"
-            aria-label={`${resolution === "hour" ? "Hourly" : "Daily"} ${metric === "tokens" ? "processed tokens" : "cost"} by provider`}
+            aria-label={`${resolution === "hour" ? "Hourly" : "Daily"} ${metric === "tokens" ? "processed tokens" : metric === "aic" ? "AI credits" : "cost"} by provider`}
           >
             {ticks.map((tick) => {
               const y = toY(tick);
@@ -409,16 +426,17 @@ export function UsageProviderChart({
             >
               <div className="mb-1 text-muted-foreground">{formatTooltipPeriod(hoveredPeriod)}</div>
               {providers.map((provider) => {
-                const { label, driverKind } = PROVIDER_PRESENTATION[provider];
+                const presentation = PROVIDER_PRESENTATION[provider];
                 return (
                   <div key={provider} className="flex items-center justify-between gap-3">
                     <span className="flex items-center gap-1.5 text-muted-foreground">
                       <ProviderInstanceIcon
-                        driverKind={driverKind}
-                        displayName={label}
+                        driverKind={presentation.driverKind}
+                        displayName={presentation.label}
+                        acpRegistryAgentId={presentation.acpRegistryAgentId}
                         iconClassName="size-3"
                       />
-                      {label}
+                      {presentation.label}
                     </span>
                     <span className="text-foreground tabular-nums">
                       {format(

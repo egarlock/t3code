@@ -114,6 +114,35 @@ describe("mergeUsage", () => {
     expect(merged.duplicateSources).toHaveLength(1);
   });
 
+  it("sums Copilot AI credits and leaves other providers at zero", () => {
+    const merged = mergeUsage(
+      [
+        environment(
+          "env-a",
+          summary(
+            [
+              bucket(),
+              bucket({ provider: "copilot", model: "claude-opus-5.5", aiCredits: 3 }),
+              bucket({ provider: "copilot", model: "gpt-6-sol", aiCredits: 1 }),
+            ],
+            [
+              { provider: "claude", hostId: "mac", homePath: "/a/.claude" },
+              { provider: "copilot", hostId: "mac", homePath: "/a/.copilot/session-state" },
+            ],
+          ),
+        ),
+      ],
+      USAGE_CONTRACT_VERSION,
+    );
+
+    expect(merged.aiCredits).toBe(4);
+    const copilot = merged.providers.find((entry) => entry.provider === "copilot");
+    const claude = merged.providers.find((entry) => entry.provider === "claude");
+    expect(copilot).toMatchObject({ aiCredits: 4, aiCreditsShare: 1 });
+    expect(claude).toMatchObject({ aiCredits: 0, aiCreditsShare: 0 });
+    expect(merged.models.find((entry) => entry.model === "gpt-6-sol")?.aiCreditsShare).toBe(0.25);
+  });
+
   it("sums environments that read different transcript directories", () => {
     const merged = mergeUsage(
       [

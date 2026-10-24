@@ -14,12 +14,19 @@ export function sortModelsByTokens(models: readonly ModelTotals[]) {
   );
 }
 
+export function sortModelsByAiCredits(models: readonly ModelTotals[]) {
+  return models.toSorted(
+    (left, right) => right.aiCredits - left.aiCredits || right.costUsd - left.costUsd,
+  );
+}
+
 /**
  * A model's share of the selected metric, or `null` for a cost share of an
  * unknown cost. An unpriced model still has a real token share.
  */
-export function modelShare(model: ModelTotals, metric: "cost" | "tokens"): number | null {
+export function modelShare(model: ModelTotals, metric: "cost" | "tokens" | "aic"): number | null {
   if (metric === "tokens") return model.tokenShare;
+  if (metric === "aic") return model.aiCreditsShare;
   return isModelCostUnknown(model) ? null : model.costShare;
 }
 

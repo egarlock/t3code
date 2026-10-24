@@ -63,6 +63,7 @@ describe("KeybindingsSettings.logic", () => {
       "usage.open",
       "usage.cost",
       "usage.tokens",
+      "usage.aic",
       "usage.limits",
       "usage.period.day",
       "usage.period.week",

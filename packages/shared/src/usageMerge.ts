@@ -31,6 +31,9 @@ export interface ProviderTotals {
   readonly sessions: number;
   readonly costShare: number;
   readonly tokenShare: number;
+  /** GitHub Copilot AI credits; zero for every other provider. */
+  readonly aiCredits: number;
+  readonly aiCreditsShare: number;
 }
 
 export interface ModelTotals {
@@ -52,6 +55,9 @@ export interface ModelTotals {
   readonly unpricedTokens: number;
   readonly costShare: number;
   readonly tokenShare: number;
+  /** GitHub Copilot AI credits; zero for every other provider. */
+  readonly aiCredits: number;
+  readonly aiCreditsShare: number;
 }
 
 /**
@@ -66,7 +72,11 @@ export interface DailyTotals {
   readonly day: string;
   readonly costUsd: number;
   readonly totalTokens: number;
-  readonly byProvider: ReadonlyMap<UsageProviderKind, { costUsd: number; totalTokens: number }>;
+  readonly aiCredits: number;
+  readonly byProvider: ReadonlyMap<
+    UsageProviderKind,
+    { costUsd: number; totalTokens: number; aiCredits: number }
+  >;
 }
 
 export interface HourlyTotals {
@@ -74,7 +84,11 @@ export interface HourlyTotals {
   readonly hourStart: string;
   readonly costUsd: number;
   readonly totalTokens: number;
-  readonly byProvider: ReadonlyMap<UsageProviderKind, { costUsd: number; totalTokens: number }>;
+  readonly aiCredits: number;
+  readonly byProvider: ReadonlyMap<
+    UsageProviderKind,
+    { costUsd: number; totalTokens: number; aiCredits: number }
+  >;
 }
 
 export interface CostQuality {
@@ -113,6 +127,8 @@ export interface UsageContractMismatch {
 
 export interface MergedUsage {
   readonly costUsd: number;
+  /** GitHub Copilot AI credits. Other providers bill no credits. */
+  readonly aiCredits: number;
   readonly uncachedInputTokens: number;
   readonly cachedInputTokens: number;
   readonly cacheCreationTokens: number;
@@ -320,6 +336,7 @@ export function isCompatibleUsageContractVersion(version: number, expected: numb
 
 const EMPTY_MERGED: MergedUsage = {
   costUsd: 0,
+  aiCredits: 0,
   uncachedInputTokens: 0,
   cachedInputTokens: 0,
   cacheCreationTokens: 0,
@@ -387,6 +404,7 @@ export function mergeUsage(
   } = claimSources(current);
 
   let costUsd = 0;
+  let aiCredits = 0;
   let uncachedInputTokens = 0;
   let cachedInputTokens = 0;
   let cacheCreationTokens = 0;
@@ -402,7 +420,7 @@ export function mergeUsage(
 
   const providerAccumulator = new Map<
     UsageProviderKind,
-    { costUsd: number; totalTokens: number; records: number; sessions: number }
+    { costUsd: number; totalTokens: number; aiCredits: number; records: number; sessions: number }
   >();
   const modelAccumulator = new Map<
     string,
@@ -410,6 +428,7 @@ export function mergeUsage(
       provider: UsageProviderKind;
       costUsd: number;
       totalTokens: number;
+      aiCredits: number;
       tokens: UsageTokenTotals;
       records: number;
       unpricedRecords: number;
@@ -421,7 +440,11 @@ export function mergeUsage(
     {
       costUsd: number;
       totalTokens: number;
-      byProvider: Map<UsageProviderKind, { costUsd: number; totalTokens: number }>;
+      aiCredits: number;
+      byProvider: Map<
+        UsageProviderKind,
+        { costUsd: number; totalTokens: number; aiCredits: number }
+      >;
     }
   >();
   const hourlyAccumulator = new Map<
@@ -431,7 +454,11 @@ export function mergeUsage(
       hourStart: string;
       costUsd: number;
       totalTokens: number;
-      byProvider: Map<UsageProviderKind, { costUsd: number; totalTokens: number }>;
+      aiCredits: number;
+      byProvider: Map<
+        UsageProviderKind,
+        { costUsd: number; totalTokens: number; aiCredits: number }
+      >;
     }
   >();
   const contributingEnvironments: EnvironmentId[] = [];
@@ -451,6 +478,7 @@ export function mergeUsage(
       const provider = providerAccumulator.get(providerKind) ?? {
         costUsd: 0,
         totalTokens: 0,
+        aiCredits: 0,
         records: 0,
         sessions: 0,
       };
@@ -460,8 +488,10 @@ export function mergeUsage(
 
     for (const bucket of buckets) {
       const tokens = bucketTokens(bucket);
+      const bucketAiCredits = bucket.aiCredits ?? 0;
 
       costUsd += bucket.costUsd;
+      aiCredits += bucketAiCredits;
       cacheSavingsUsd += bucket.cacheSavingsUsd;
       uncachedInputTokens += bucket.totals.uncachedInputTokens;
       cachedInputTokens += bucket.totals.cachedInputTokens;
@@ -484,11 +514,13 @@ export function mergeUsage(
       const provider = providerAccumulator.get(bucket.provider) ?? {
         costUsd: 0,
         totalTokens: 0,
+        aiCredits: 0,
         records: 0,
         sessions: 0,
       };
       provider.costUsd += bucket.costUsd;
       provider.totalTokens += tokens;
+      provider.aiCredits += bucketAiCredits;
       provider.records += bucket.records;
       providerAccumulator.set(bucket.provider, provider);
 
@@ -497,6 +529,7 @@ export function mergeUsage(
         provider: bucket.provider,
         costUsd: 0,
         totalTokens: 0,
+        aiCredits: 0,
         tokens: {
           uncachedInputTokens: 0,
           cachedInputTokens: 0,
@@ -510,6 +543,7 @@ export function mergeUsage(
       };
       model.costUsd += bucket.costUsd;
       model.totalTokens += tokens;
+      model.aiCredits += bucketAiCredits;
       model.tokens = {
         uncachedInputTokens: model.tokens.uncachedInputTokens + bucket.totals.uncachedInputTokens,
         cachedInputTokens: model.tokens.cachedInputTokens + bucket.totals.cachedInputTokens,
@@ -527,13 +561,23 @@ export function mergeUsage(
       const day = dailyAccumulator.get(bucket.day) ?? {
         costUsd: 0,
         totalTokens: 0,
-        byProvider: new Map<UsageProviderKind, { costUsd: number; totalTokens: number }>(),
+        aiCredits: 0,
+        byProvider: new Map<
+          UsageProviderKind,
+          { costUsd: number; totalTokens: number; aiCredits: number }
+        >(),
       };
       day.costUsd += bucket.costUsd;
       day.totalTokens += tokens;
-      const dayProvider = day.byProvider.get(bucket.provider) ?? { costUsd: 0, totalTokens: 0 };
+      day.aiCredits += bucketAiCredits;
+      const dayProvider = day.byProvider.get(bucket.provider) ?? {
+        costUsd: 0,
+        totalTokens: 0,
+        aiCredits: 0,
+      };
       dayProvider.costUsd += bucket.costUsd;
       dayProvider.totalTokens += tokens;
+      dayProvider.aiCredits += bucketAiCredits;
       day.byProvider.set(bucket.provider, dayProvider);
       dailyAccumulator.set(bucket.day, day);
 
@@ -543,16 +587,23 @@ export function mergeUsage(
           hourStart: bucket.hourStart,
           costUsd: 0,
           totalTokens: 0,
-          byProvider: new Map<UsageProviderKind, { costUsd: number; totalTokens: number }>(),
+          aiCredits: 0,
+          byProvider: new Map<
+            UsageProviderKind,
+            { costUsd: number; totalTokens: number; aiCredits: number }
+          >(),
         };
         hour.costUsd += bucket.costUsd;
         hour.totalTokens += tokens;
+        hour.aiCredits += bucketAiCredits;
         const hourProvider = hour.byProvider.get(bucket.provider) ?? {
           costUsd: 0,
           totalTokens: 0,
+          aiCredits: 0,
         };
         hourProvider.costUsd += bucket.costUsd;
         hourProvider.totalTokens += tokens;
+        hourProvider.aiCredits += bucketAiCredits;
         hour.byProvider.set(bucket.provider, hourProvider);
         hourlyAccumulator.set(bucket.hourStart, hour);
       }
@@ -570,6 +621,8 @@ export function mergeUsage(
       sessions: totals.sessions,
       costShare: costUsd === 0 ? 0 : totals.costUsd / costUsd,
       tokenShare: totalTokens === 0 ? 0 : totals.totalTokens / totalTokens,
+      aiCredits: totals.aiCredits,
+      aiCreditsShare: aiCredits === 0 ? 0 : totals.aiCredits / aiCredits,
     }))
     .sort((a, b) => b.costUsd - a.costUsd);
 
@@ -585,6 +638,8 @@ export function mergeUsage(
       unpricedTokens: totals.unpricedTokens,
       costShare: costUsd === 0 ? 0 : totals.costUsd / costUsd,
       tokenShare: totalTokens === 0 ? 0 : totals.totalTokens / totalTokens,
+      aiCredits: totals.aiCredits,
+      aiCreditsShare: aiCredits === 0 ? 0 : totals.aiCredits / aiCredits,
     }))
     .sort((a, b) => b.costUsd - a.costUsd || b.totalTokens - a.totalTokens);
 
@@ -593,6 +648,7 @@ export function mergeUsage(
       day,
       costUsd: totals.costUsd,
       totalTokens: totals.totalTokens,
+      aiCredits: totals.aiCredits,
       byProvider: totals.byProvider,
     }))
     .sort((a, b) => a.day.localeCompare(b.day));
@@ -603,6 +659,7 @@ export function mergeUsage(
 
   return {
     costUsd,
+    aiCredits,
     uncachedInputTokens,
     cachedInputTokens,
     cacheCreationTokens,

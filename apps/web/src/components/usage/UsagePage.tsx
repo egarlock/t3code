@@ -41,6 +41,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import {
   enumerateDays,
   enumerateHourStarts,
+  formatAic,
   formatCount,
   formatDateTimeShort,
   formatDayShort,
@@ -77,12 +78,18 @@ import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection } from "./UsageLimits";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
-import { UsageProviderChart } from "./UsageProviderChart";
+import {
+  UsageProviderChart,
+  formatMetric,
+  metricValue,
+  type UsageChartMetric,
+} from "./UsageProviderChart";
 import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
 import { UsageShareBar } from "./UsageShareBar";
 import {
   costTypeSegments,
   modelShare,
+  sortModelsByAiCredits,
   sortModelsByTokens,
   speedCostSegments,
   tokenTypeSegments,
@@ -131,6 +138,8 @@ export function UsagePage() {
   }));
   const metric = preferences.metric;
   const showingLimits = metric === "limits";
+  // Limits has no chart; the cost view stands behind it so hooks keep one shape.
+  const chartMetric: UsageChartMetric = metric === "limits" ? "cost" : metric;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [limitsNow, setLimitsNow] = useState(() => Date.now());
   const refreshingRef = useRef(false);
@@ -186,9 +195,13 @@ export function UsagePage() {
   );
   const breakdownModels = useMemo(
     () =>
-      breakdown === "model" && metric === "tokens"
-        ? sortModelsByTokens(merged.models)
-        : merged.models,
+      breakdown !== "model"
+        ? merged.models
+        : metric === "tokens"
+          ? sortModelsByTokens(merged.models)
+          : metric === "aic"
+            ? sortModelsByAiCredits(merged.models)
+            : merged.models,
     [breakdown, merged.models, metric],
   );
   const activeProviders = useMemo(() => providersWithUsage(merged.providers), [merged.providers]);
@@ -197,7 +210,7 @@ export function UsagePage() {
       ? undefined
       : merged.models.find((model) => `${model.provider}:${model.model}` === selectedModelKey);
   const breakdownPeak = breakdownModels.reduce(
-    (peak, model) => Math.max(peak, metric === "tokens" ? model.totalTokens : model.costUsd),
+    (peak, model) => Math.max(peak, metricValue(model, chartMetric)),
     0,
   );
   const summaryRows: Array<
@@ -504,9 +517,7 @@ export function UsagePage() {
                   <div className="flex min-w-0 flex-col gap-5">
                     <div className="flex flex-col gap-1">
                       <span className="text-4xl font-semibold text-foreground tabular-nums">
-                        {metric === "cost"
-                          ? formatUsd(merged.costUsd)
-                          : formatTokens(merged.totalTokens)}
+                        {formatMetric(chartMetric)(metricValue(merged, chartMetric))}
                       </span>
                       <span className="text-xs text-muted-foreground">
                         {formatCount(merged.sessions)} sessions
@@ -566,7 +577,11 @@ export function UsagePage() {
                       const provider = row.provider;
                       const totals = merged.providers.find((entry) => entry.provider === provider);
                       const share =
-                        metric === "cost" ? (totals?.costShare ?? 0) : (totals?.tokenShare ?? 0);
+                        metric === "cost"
+                          ? (totals?.costShare ?? 0)
+                          : metric === "aic"
+                            ? (totals?.aiCreditsShare ?? 0)
+                            : (totals?.tokenShare ?? 0);
                       const providerSessions = totals?.sessions ?? 0;
                       const sessionLabel = `${formatCount(providerSessions)} ${
                         providerSessions === 1 ? "session" : "sessions"
@@ -593,15 +608,17 @@ export function UsagePage() {
                               </span>
                             </span>
                             <span className="shrink-0 text-sm font-medium text-foreground tabular-nums">
-                              {metric === "cost"
-                                ? formatUsd(totals?.costUsd ?? 0)
-                                : formatTokens(totals?.totalTokens ?? 0)}
+                              {formatMetric(chartMetric)(
+                                totals === undefined ? 0 : metricValue(totals, chartMetric),
+                              )}
                             </span>
                           </div>
                           <span className="text-xs text-muted-foreground">
                             {metric === "cost"
                               ? `${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens`
-                              : `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}`}
+                              : metric === "aic"
+                                ? `${formatPercent(share)} of AIC · ${formatUsd(totals?.costUsd ?? 0)}`
+                                : `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}`}
                           </span>
                         </div>
                       );
@@ -611,7 +628,11 @@ export function UsagePage() {
                   <div className="flex min-w-0 flex-col gap-3">
                     <h2 className="text-sm font-medium text-foreground">
                       {isPast24Hours ? "Hourly" : "Daily"}{" "}
-                      {metric === "tokens" ? "processed tokens" : "cost"}
+                      {metric === "tokens"
+                        ? "processed tokens"
+                        : metric === "aic"
+                          ? "AI credits"
+                          : "cost"}
                     </h2>
                     <UsageProviderChart
                       providers={activeProviders}
@@ -619,7 +640,7 @@ export function UsagePage() {
                       daily={merged.daily}
                       hours={hours}
                       hourly={merged.hourly}
-                      metric={metric}
+                      metric={chartMetric}
                       referenceTime={window.untilTime}
                       resolution={isPast24Hours ? "hour" : "day"}
                       timeZone={window.timeZone}
@@ -646,7 +667,7 @@ export function UsagePage() {
 
                 {merged.totalTokens > 0 ? (
                   <section className="grid gap-x-12 gap-y-8 lg:grid-cols-2">
-                    {metric === "tokens" ? (
+                    {metric !== "cost" ? (
                       <UsageShareBar
                         label="Tokens by type"
                         segments={tokenTypeSegments(merged)}
@@ -703,7 +724,9 @@ export function UsagePage() {
                         <tr className="border-b border-border text-right text-xs text-muted-foreground">
                           <th className="py-2 pr-3 text-left font-normal">#</th>
                           <th className="w-full py-2 text-left font-normal">Model</th>
-                          <th className="py-2 pl-6 font-normal">Cost</th>
+                          <th className="py-2 pl-6 font-normal">
+                            {metric === "aic" ? "AIC" : "Cost"}
+                          </th>
                           <th className="hidden py-2 pl-6 font-normal sm:table-cell">Share</th>
                           <th className="py-2 pl-6 font-normal">Tokens</th>
                         </tr>
@@ -718,11 +741,8 @@ export function UsagePage() {
                         ) : (
                           breakdownModels.map((model, index) => {
                             const key = `${model.provider}:${model.model}`;
-                            const value = metric === "tokens" ? model.totalTokens : model.costUsd;
-                            const share = modelShare(
-                              model,
-                              metric === "tokens" ? "tokens" : "cost",
-                            );
+                            const value = metricValue(model, chartMetric);
+                            const share = modelShare(model, chartMetric);
                             return (
                               <tr
                                 key={key}
@@ -756,7 +776,9 @@ export function UsagePage() {
                                   </div>
                                 </td>
                                 <td className="py-2.5 pl-6 text-foreground">
-                                  {isModelCostUnknown(model) ? (
+                                  {metric === "aic" ? (
+                                    formatAic(model.aiCredits)
+                                  ) : isModelCostUnknown(model) ? (
                                     <span className="text-muted-foreground">Unpriced</span>
                                   ) : (
                                     formatUsd(model.costUsd)
@@ -820,11 +842,15 @@ export function UsagePage() {
                                   key={provider}
                                   className="py-2 text-right text-muted-foreground tabular-nums"
                                 >
-                                  {formatUsd(period.byProvider.get(provider)?.costUsd ?? 0)}
+                                  {metric === "aic"
+                                    ? formatAic(period.byProvider.get(provider)?.aiCredits ?? 0)
+                                    : formatUsd(period.byProvider.get(provider)?.costUsd ?? 0)}
                                 </td>
                               ))}
                               <td className="py-2 text-right text-foreground tabular-nums">
-                                {formatUsd(period.costUsd)}
+                                {metric === "aic"
+                                  ? formatAic(period.aiCredits)
+                                  : formatUsd(period.costUsd)}
                               </td>
                               <td className="py-2 text-right text-muted-foreground tabular-nums">
                                 {formatTokens(period.totalTokens)}
@@ -845,7 +871,7 @@ export function UsagePage() {
         <UsageModelDialog
           model={selectedModel}
           environments={selectedEnvironments}
-          metric={metric === "tokens" ? "tokens" : "cost"}
+          metric={chartMetric}
           chartWindow={{
             days,
             hours,
@@ -1018,6 +1044,7 @@ function ProviderMark({
     <ProviderInstanceIcon
       driverKind={presentation.driverKind}
       displayName={presentation.label}
+      acpRegistryAgentId={presentation.acpRegistryAgentId}
       iconClassName={className}
     />
   );

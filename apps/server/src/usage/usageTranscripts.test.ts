@@ -5,6 +5,7 @@ import {
   initialCodexScanState,
   parseClaudeLine,
   parseCodexLine,
+  parseCopilotLine,
   parseGrokLine,
   totalTokens,
 } from "./usageTranscripts.ts";
@@ -594,5 +595,70 @@ describe("parseGrokLine", () => {
 
     const records = parseGrokLine(line);
     expect(records[0]?.timestampMs).toBe(1_786_372_566_000);
+  });
+});
+
+describe("parseCopilotLine", () => {
+  /** Shaped after a real Copilot CLI `session.usage_record` event. */
+  const copilotLine = (usage: Record<string, unknown>) =>
+    JSON.stringify({
+      type: "session.usage_record",
+      timestamp: "2026-10-23T05:12:00.000Z",
+      data: {
+        usage: {
+          model: "claude-opus-5.5",
+          inputTokens: 1200,
+          outputTokens: 300,
+          cacheReadTokens: 900,
+          cacheWriteTokens: 100,
+          reasoningTokens: 40,
+          accounting: { usageId: "usage-1" },
+          serviceRequestId: "svc-1",
+          copilotUsage: { totalNanoAiu: 2_500_000_000 },
+          ...usage,
+        },
+      },
+    });
+
+  it("splits cache tokens out of input and converts nano AIU to credits", () => {
+    const record = parseCopilotLine(copilotLine({}), "session-folder");
+    expect(record).toEqual({
+      provider: "copilot",
+      timestampMs: Date.parse("2026-10-23T05:12:00.000Z"),
+      model: "claude-opus-5.5",
+      sessionId: "session-folder",
+      totals: {
+        uncachedInputTokens: 200,
+        cachedInputTokens: 900,
+        cacheCreationTokens: 100,
+        outputTokens: 300,
+        reasoningTokens: 40,
+      },
+      reportedCostUsd: null,
+      speed: "standard",
+      dedupeKey: "copilot:usage-1",
+      aiCredits: 2.5,
+    });
+  });
+
+  it("counts tokens but no credits for bring-your-own-key calls", () => {
+    const record = parseCopilotLine(copilotLine({ copilotUsage: undefined }), "s");
+    expect(record?.totals.outputTokens).toBe(300);
+    expect(record).not.toHaveProperty("aiCredits");
+  });
+
+  it("falls back to the service request id for the dedupe key", () => {
+    const record = parseCopilotLine(copilotLine({ accounting: undefined }), "s");
+    expect(record?.dedupeKey).toBe("copilot:svc-1");
+  });
+
+  it("ignores other events and records without tokens", () => {
+    expect(parseCopilotLine(JSON.stringify({ type: "assistant.message" }), "s")).toBeNull();
+    expect(
+      parseCopilotLine(
+        copilotLine({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }),
+        "s",
+      ),
+    ).toBeNull();
   });
 });

@@ -97,9 +97,22 @@ describe("scan cache round trip", () => {
       }),
     });
 
+    original.set("/copilot/events.jsonl", {
+      size: 60,
+      mtimeMs: 500,
+      provider: "copilot",
+      records: [
+        record({ provider: "copilot", dedupeKey: "copilot:u1", aiCredits: 1.25 }),
+        record({ provider: "copilot", dedupeKey: "copilot:u2" }),
+      ],
+      tailRecords: [],
+      position: position(),
+    });
+
     const restored = decodeScanCache(JSON.parse(JSON.stringify(encodeScanCache(original))));
 
-    expect(restored.size).toBe(4);
+    expect(restored.size).toBe(5);
+    expect(restored.get("/copilot/events.jsonl")).toEqual(original.get("/copilot/events.jsonl"));
     expect(restored.get("/a.jsonl")).toEqual(original.get("/a.jsonl"));
     expect(restored.get("/b.jsonl")).toEqual(original.get("/b.jsonl"));
     expect(restored.get("/grok.jsonl")).toEqual(original.get("/grok.jsonl"));
