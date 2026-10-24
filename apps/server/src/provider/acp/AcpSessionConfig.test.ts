@@ -1,6 +1,10 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { ACP_SESSION_MODE_OPTION_ID, acpProviderOptionDescriptors } from "./AcpSessionConfig.ts";
+import {
+  ACP_EMPTY_OPTION_VALUE,
+  ACP_SESSION_MODE_OPTION_ID,
+  acpProviderOptionDescriptors,
+} from "./AcpSessionConfig.ts";
 
 describe("acpProviderOptionDescriptors", () => {
   it("maps non-model select options and excludes model and collaboration categories", () => {
@@ -120,6 +124,38 @@ describe("acpProviderOptionDescriptors", () => {
           { id: "full", label: "Full" },
         ],
         currentValue: "workspace",
+      },
+    ]);
+  });
+
+  it("keeps an empty-valued choice, such as Copilot's default agent, under a reserved ID", () => {
+    const descriptors = acpProviderOptionDescriptors({
+      configOptions: [
+        {
+          id: "agent",
+          name: "Agent",
+          category: "_agent",
+          type: "select",
+          currentValue: "",
+          options: [
+            { value: "", name: "Copilot" },
+            { value: "tabs-expert", name: "tabs-expert" },
+          ],
+        },
+      ],
+      modeState: undefined,
+    });
+
+    expect(descriptors).toEqual([
+      {
+        id: "agent",
+        label: "Agent",
+        type: "select",
+        options: [
+          { id: ACP_EMPTY_OPTION_VALUE, label: "Copilot" },
+          { id: "tabs-expert", label: "tabs-expert" },
+        ],
+        currentValue: ACP_EMPTY_OPTION_VALUE,
       },
     ]);
   });

@@ -91,7 +91,10 @@ import {
   resolveEmbeddedTerminalContent,
   type AcpClientTerminals,
 } from "../../provider/acp/AcpClientTerminals.ts";
-import { ACP_SESSION_MODE_OPTION_ID } from "../../provider/acp/AcpSessionConfig.ts";
+import {
+  ACP_EMPTY_OPTION_VALUE,
+  ACP_SESSION_MODE_OPTION_ID,
+} from "../../provider/acp/AcpSessionConfig.ts";
 import * as AcpSessionRuntime from "../../provider/acp/AcpSessionRuntime.ts";
 import {
   t3AcpPromptWithInstructions,
@@ -6267,7 +6270,11 @@ export function makeAcpAdapterV2(
               };
             });
           }
-          const optionSelections = modelSelection.options ?? [];
+          // Restore the agent's own empty value for choices T3 stores under a
+          // reserved ID (see ACP_EMPTY_OPTION_VALUE).
+          const optionSelections = (modelSelection.options ?? []).map((selection) =>
+            selection.value === ACP_EMPTY_OPTION_VALUE ? { ...selection, value: "" } : selection,
+          );
           const configOptions = yield* runtime.getConfigOptions;
           const availableConfigIds = new Set(configOptions.map((option) => option.id));
           const hasNativeConfigWithSyntheticModeId = availableConfigIds.has(
