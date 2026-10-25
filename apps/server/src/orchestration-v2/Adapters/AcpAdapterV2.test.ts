@@ -56,7 +56,10 @@ import type * as EffectAcpSchema from "effect-acp/compat";
 
 import * as ServerConfig from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
-import { ACP_LAUNCH_PRESET_OPTION_ID } from "../../provider/acp/AcpLaunchPresets.ts";
+import {
+  ACP_LAUNCH_PRESET_OPTION_ID,
+  isAcpLaunchOptionId,
+} from "../../provider/acp/AcpLaunchPresets.ts";
 import * as AcpSessionRuntime from "../../provider/acp/AcpSessionRuntime.ts";
 import {
   extractXAiAcpSubagentEndNotice,
@@ -12309,7 +12312,10 @@ describe("AcpAdapterV2", () => {
       const presetSelection = {
         instanceId,
         model: "default",
-        options: [{ id: ACP_LAUNCH_PRESET_OPTION_ID, value: "ado" }],
+        options: [
+          { id: ACP_LAUNCH_PRESET_OPTION_ID, value: "ado" },
+          { id: "_t3/launch-toggle:teams", value: true },
+        ],
       } satisfies ModelSelection;
       const runtime = yield* adapter.openSession({
         threadId,
@@ -12360,10 +12366,11 @@ describe("AcpAdapterV2", () => {
         "the respawned agent should reload the existing native session",
       );
       assert.isFalse(
-        secondTurnRequests.some(
-          (event) => rawProtocolRequestParam(event, "configId") === ACP_LAUNCH_PRESET_OPTION_ID,
-        ),
-        "launch presets must never be sent to the agent as a config option",
+        secondTurnRequests.some((event) => {
+          const configId = rawProtocolRequestParam(event, "configId");
+          return typeof configId === "string" && isAcpLaunchOptionId(configId);
+        }),
+        "launch presets and toggles must never be sent to the agent as config options",
       );
 
       yield* runTurn(3, presetSelection);

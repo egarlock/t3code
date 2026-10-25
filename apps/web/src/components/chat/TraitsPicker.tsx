@@ -39,6 +39,7 @@ import {
   type ComposerControlSize,
 } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
+import { isLaunchToggleDescriptor } from "./LaunchTogglesPicker";
 import { useComposerMenuState } from "./useComposerMenuState";
 
 type ProviderOptions = ReadonlyArray<ProviderOptionSelection>;
@@ -159,9 +160,11 @@ function getSelectedTraits(
     (descriptor): descriptor is Extract<ProviderOptionDescriptor, { type: "select" }> =>
       descriptor.type === "select",
   );
+  // Launch toggles get their own composer dropdown. They stay in `descriptors`
+  // so trait updates keep their selections.
   const booleanDescriptors = descriptors.filter(
     (descriptor): descriptor is Extract<ProviderOptionDescriptor, { type: "boolean" }> =>
-      descriptor.type === "boolean",
+      descriptor.type === "boolean" && !isLaunchToggleDescriptor(descriptor),
   );
   const primarySelectDescriptor = selectDescriptors[0] ?? null;
   const contextWindowDescriptor =

@@ -132,6 +132,7 @@ describe("AcpRegistryAdapterV2", () => {
       distribution: "auto",
       customModels: [],
       launchPresets: [],
+      launchToggles: [],
     });
   });
 

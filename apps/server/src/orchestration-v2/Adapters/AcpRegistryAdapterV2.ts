@@ -30,10 +30,7 @@ import {
 import * as AcpRegistrySupport from "../../provider/acp/AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "../../provider/acp/AcpRegistryRuntimeCoordinator.ts";
 import * as AcpSessionRuntime from "../../provider/acp/AcpSessionRuntime.ts";
-import {
-  applyAcpLaunchPreset,
-  selectedAcpLaunchPreset,
-} from "../../provider/acp/AcpLaunchPresets.ts";
+import { acpLaunchKey, applyAcpLaunchSelection } from "../../provider/acp/AcpLaunchPresets.ts";
 import { makeAcpNativeLoggerFactory } from "../../provider/acp/AcpNativeLogging.ts";
 import * as ProviderEventLoggers from "../../provider/Layers/ProviderEventLoggers.ts";
 import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanceEnvironment.ts";
@@ -162,10 +159,7 @@ function makeAcpRegistryRuntime(options: AcpRegistryAdapterV2Options) {
               }),
           ),
         );
-      const spawn = applyAcpLaunchPreset(
-        resolved.spawn,
-        selectedAcpLaunchPreset(options.settings.launchPresets, modelSelection),
-      );
+      const spawn = applyAcpLaunchSelection(resolved.spawn, options.settings, modelSelection);
       const context = yield* Layer.build(
         AcpSessionRuntime.layer({
           ...runtimeInput,
@@ -216,8 +210,7 @@ export function makeAcpRegistryAdapterV2(options: AcpRegistryAdapterV2Options) {
         }
       : {}),
     makeRuntime: options.makeRuntime ?? makeAcpRegistryRuntime(options),
-    runtimeLaunchKey: (selection) =>
-      selectedAcpLaunchPreset(options.settings.launchPresets, selection)?.id ?? "",
+    runtimeLaunchKey: (selection) => acpLaunchKey(options.settings, selection),
     ...(runtimeCoordinator === undefined
       ? {}
       : {

@@ -889,6 +889,13 @@ export const AcpLaunchPreset = Schema.Struct({
 });
 export type AcpLaunchPreset = typeof AcpLaunchPreset.Type;
 
+/**
+ * Launch toggles share the preset shape but are independent on/off switches,
+ * so several can apply to one thread (for example one MCP profile each).
+ * Composer options for them use this ID prefix followed by the toggle ID.
+ */
+export const ACP_LAUNCH_TOGGLE_OPTION_PREFIX = "_t3/launch-toggle:";
+
 export const AcpRegistrySettings = makeProviderSettingsSchema(
   {
     source: Schema.Literals(["registry", "local"]).pipe(
@@ -947,6 +954,10 @@ export const AcpRegistrySettings = makeProviderSettingsSchema(
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     launchPresets: Schema.Array(AcpLaunchPreset).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    launchToggles: Schema.Array(AcpLaunchPreset).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
