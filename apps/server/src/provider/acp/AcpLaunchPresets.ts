@@ -1,8 +1,9 @@
-import type {
-  AcpLaunchPreset,
-  ModelSelection,
-  ProviderOptionChoice,
-  ProviderOptionDescriptor,
+import {
+  ACP_LAUNCH_TOGGLE_OPTION_PREFIX,
+  type AcpLaunchPreset,
+  type ModelSelection,
+  type ProviderOptionChoice,
+  type ProviderOptionDescriptor,
 } from "@t3tools/contracts";
 
 import type { AcpSpawnInput } from "./AcpSessionRuntime.ts";
@@ -56,6 +57,80 @@ export function selectedAcpLaunchPreset(
 ): AcpLaunchPreset | undefined {
   const id = acpLaunchPresetId(selection);
   return id === undefined ? undefined : presets.find((preset) => preset.id === id);
+}
+
+/** True for synthetic launch options, which must never reach the agent as config. */
+export function isAcpLaunchOptionId(id: string): boolean {
+  return id === ACP_LAUNCH_PRESET_OPTION_ID || id.startsWith(ACP_LAUNCH_TOGGLE_OPTION_PREFIX);
+}
+
+/** One boolean composer option per launch toggle, off by default. */
+export function acpLaunchToggleDescriptors(
+  toggles: ReadonlyArray<AcpLaunchPreset>,
+): ReadonlyArray<ProviderOptionDescriptor> {
+  const seen = new Set<string>();
+  const descriptors: Array<ProviderOptionDescriptor> = [];
+  for (const toggle of toggles) {
+    if (seen.has(toggle.id)) continue;
+    seen.add(toggle.id);
+    descriptors.push({
+      id: `${ACP_LAUNCH_TOGGLE_OPTION_PREFIX}${toggle.id}`,
+      label: toggle.label,
+      type: "boolean",
+      currentValue: false,
+    });
+  }
+  return descriptors;
+}
+
+/** Toggles switched on by a selection, in settings order. */
+export function selectedAcpLaunchToggles(
+  toggles: ReadonlyArray<AcpLaunchPreset>,
+  selection: ModelSelection | undefined,
+): ReadonlyArray<AcpLaunchPreset> {
+  const enabled = new Set(
+    (selection?.options ?? []).flatMap((option) =>
+      option.value === true && option.id.startsWith(ACP_LAUNCH_TOGGLE_OPTION_PREFIX)
+        ? [option.id.slice(ACP_LAUNCH_TOGGLE_OPTION_PREFIX.length)]
+        : [],
+    ),
+  );
+  const seen = new Set<string>();
+  return toggles.filter((toggle) => {
+    if (!enabled.has(toggle.id) || seen.has(toggle.id)) return false;
+    seen.add(toggle.id);
+    return true;
+  });
+}
+
+/** Identifies the process a selection launches, so a change respawns the runtime. */
+export function acpLaunchKey(
+  settings: {
+    readonly launchPresets: ReadonlyArray<AcpLaunchPreset>;
+    readonly launchToggles: ReadonlyArray<AcpLaunchPreset>;
+  },
+  selection: ModelSelection | undefined,
+): string {
+  const presetId = selectedAcpLaunchPreset(settings.launchPresets, selection)?.id ?? "";
+  const toggleIds = selectedAcpLaunchToggles(settings.launchToggles, selection).map(
+    (toggle) => toggle.id,
+  );
+  return toggleIds.length === 0 ? presetId : JSON.stringify([presetId, ...toggleIds]);
+}
+
+/** Applies the selected preset, then each selected toggle, over the base spawn. */
+export function applyAcpLaunchSelection(
+  spawn: AcpSpawnInput,
+  settings: {
+    readonly launchPresets: ReadonlyArray<AcpLaunchPreset>;
+    readonly launchToggles: ReadonlyArray<AcpLaunchPreset>;
+  },
+  selection: ModelSelection | undefined,
+): AcpSpawnInput {
+  return [
+    selectedAcpLaunchPreset(settings.launchPresets, selection),
+    ...selectedAcpLaunchToggles(settings.launchToggles, selection),
+  ].reduce(applyAcpLaunchPreset, spawn);
 }
 
 export function applyAcpLaunchPreset(

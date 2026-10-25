@@ -261,6 +261,12 @@ import {
 } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
+import {
+  hasLaunchToggles,
+  LaunchTogglesMenuContent,
+  LaunchTogglesPicker,
+  type LaunchTogglesProps,
+} from "./LaunchTogglesPicker";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
@@ -2937,6 +2943,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isComposerOwned: true,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
+  const launchTogglesInput = {
+    provider: selectedProvider,
+    instanceId: selectedInstanceId,
+    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
+    ...(routeKind === "draft" && draftId ? { draftId } : {}),
+    model: selectedModel,
+    models: selectedProviderModels,
+    modelOptions: composerModelOptions?.[selectedInstanceId],
+    planModeEnabled: settings.planModeEnabled,
+  } satisfies LaunchTogglesProps;
+  const showLaunchToggles = hasLaunchToggles(launchTogglesInput);
   const [inlineRestingControlsHost, setInlineRestingControlsHost] = useState<HTMLDivElement | null>(
     null,
   );
@@ -5334,10 +5351,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const iconOnlyBlockCount = composerControlsCollapsed
     ? restingControlsIconOnlyBlockCount
     : expandedControlsLayout.iconOnlyBlockCount;
+  // Blocks hide from the end, so a block is hidden once the hidden count reaches it.
+  const restingBlockIds = [
+    ...(providerTraitsPicker ? ["traits"] : []),
+    ...(showLaunchToggles ? ["launchToggles"] : []),
+    "mode",
+  ];
+  const isRestingBlockHidden = (id: string) =>
+    restingBlockIds.indexOf(id) >= restingBlockIds.length - restingHiddenBlockCount;
   const restingProviderTraitsPicker = renderProviderTraitsPicker({
     ...providerTraitsPickerInput,
     size: composerControlsCollapsed ? "xs" : "sm",
-    hidden: composerControlsHidden || restingHiddenBlockCount > 1,
+    hidden: composerControlsHidden || isRestingBlockHidden("traits"),
   });
   const restingBlockDefs = [
     ...(providerTraitsPicker
@@ -5348,6 +5373,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               <>
                 <ComposerControlSeparator size={composerControlsCollapsed ? "xs" : "sm"} />
                 {restingProviderTraitsPicker}
+              </>
+            ),
+          },
+        ]
+      : []),
+    ...(showLaunchToggles
+      ? [
+          {
+            id: "launchToggles",
+            content: (
+              <>
+                <ComposerControlSeparator size={composerControlsCollapsed ? "xs" : "sm"} />
+                <LaunchTogglesPicker
+                  {...launchTogglesInput}
+                  isComposerOwned
+                  size={composerControlsCollapsed ? "xs" : "sm"}
+                  hidden={composerControlsHidden || isRestingBlockHidden("launchToggles")}
+                />
               </>
             ),
           },
@@ -5528,6 +5571,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
             traitsMenuContent={
               hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
+            }
+            launchTogglesMenuContent={
+              hiddenRestingBlockIds.includes("launchToggles") ? (
+                <LaunchTogglesMenuContent {...launchTogglesInput} />
+              ) : undefined
             }
             onToggleInteractionMode={toggleInteractionMode}
             onRuntimeModeChange={handleRuntimeModeChange}

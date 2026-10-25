@@ -95,7 +95,7 @@ import {
   ACP_EMPTY_OPTION_VALUE,
   ACP_SESSION_MODE_OPTION_ID,
 } from "../../provider/acp/AcpSessionConfig.ts";
-import { ACP_LAUNCH_PRESET_OPTION_ID } from "../../provider/acp/AcpLaunchPresets.ts";
+import { isAcpLaunchOptionId } from "../../provider/acp/AcpLaunchPresets.ts";
 import * as AcpSessionRuntime from "../../provider/acp/AcpSessionRuntime.ts";
 import {
   t3AcpPromptWithInstructions,
@@ -6297,12 +6297,11 @@ export function makeAcpAdapterV2(
           const modeSelection = hasNativeConfigWithSyntheticModeId
             ? undefined
             : optionSelections.find((selection) => selection.id === ACP_SESSION_MODE_OPTION_ID);
-          // Launch presets are applied when the process spawns, never as config.
+          // Launch presets and toggles apply when the process spawns, never as config.
           const configSelections = optionSelections.filter(
             (selection) =>
               (hasNativeConfigWithSyntheticModeId || selection.id !== ACP_SESSION_MODE_OPTION_ID) &&
-              (availableConfigIds.has(ACP_LAUNCH_PRESET_OPTION_ID) ||
-                selection.id !== ACP_LAUNCH_PRESET_OPTION_ID),
+              (availableConfigIds.has(selection.id) || !isAcpLaunchOptionId(selection.id)),
           );
           // Probe-time descriptors are a per-model union, so a stored
           // selection can reference an option the live session does not

@@ -61,7 +61,7 @@ import * as AcpRegistrySupport from "../acp/AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "../acp/AcpRegistryRuntimeCoordinator.ts";
 import * as AcpRegistryAuth from "../acp/AcpRegistryAuth.ts";
 import * as AcpRegistryAuthenticationState from "../acp/AcpRegistryAuthenticationState.ts";
-import { acpLaunchPresetDescriptor } from "../acp/AcpLaunchPresets.ts";
+import { acpLaunchPresetDescriptor, acpLaunchToggleDescriptors } from "../acp/AcpLaunchPresets.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
 const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
@@ -92,7 +92,10 @@ const makeUnsupportedTextGeneration = (): TextGeneration["Service"] => {
   };
 };
 
-type AcpRegistryModelSettings = Pick<AcpRegistrySettings, "customModels" | "launchPresets">;
+type AcpRegistryModelSettings = Pick<
+  AcpRegistrySettings,
+  "customModels" | "launchPresets" | "launchToggles"
+>;
 
 function modelsFromDiscovery(
   discovery:
@@ -103,11 +106,12 @@ function modelsFromDiscovery(
   const discovered = discovery?.models ?? [];
   // Discovered session config options and modes ride on every model so the
   // composer's generic option controls can drive them per thread. Launch
-  // presets join them as one synthetic option.
+  // presets join them as one synthetic select, launch toggles as booleans.
   const launchPresetDescriptor = acpLaunchPresetDescriptor(settings.launchPresets);
   const optionDescriptors = [
     ...(discovery?.configOptions ?? []),
     ...(launchPresetDescriptor === undefined ? [] : [launchPresetDescriptor]),
+    ...acpLaunchToggleDescriptors(settings.launchToggles),
   ];
   const capabilities =
     optionDescriptors.length === 0

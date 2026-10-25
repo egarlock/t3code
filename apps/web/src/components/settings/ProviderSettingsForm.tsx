@@ -263,10 +263,15 @@ export function formatLaunchPresetEnv(env: AcpLaunchPreset["env"]): string {
   return env.map((variable) => `${variable.name}=${variable.value}`).join("\n");
 }
 
-function readLaunchPresets(config: unknown): ReadonlyArray<AcpLaunchPreset> {
+type LaunchPresetConfigKey = "launchPresets" | "launchToggles";
+
+function readLaunchPresets(
+  config: unknown,
+  key: LaunchPresetConfigKey,
+): ReadonlyArray<AcpLaunchPreset> {
   const configured =
     config !== null && typeof config === "object"
-      ? (config as Record<string, unknown>).launchPresets
+      ? (config as Record<string, unknown>)[key]
       : undefined;
   if (!Array.isArray(configured)) return [];
   return configured.flatMap((entry): Array<AcpLaunchPreset> => {
@@ -295,8 +300,25 @@ function readLaunchPresets(config: unknown): ReadonlyArray<AcpLaunchPreset> {
   });
 }
 
-const makeLaunchPresetId = () =>
-  `preset-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const makeLaunchPresetId = (noun: string) =>
+  `${noun}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const launchPresetSections = {
+  launchPresets: {
+    title: "Launch presets",
+    description:
+      "Extra arguments and environment to start the agent with, chosen per thread from the composer. Presets are visible to connected clients, so keep secrets in Environment.",
+    noun: "preset",
+    label: "Preset",
+  },
+  launchToggles: {
+    title: "Launch toggles",
+    description:
+      "Extra arguments and environment that can be switched on together from the composer, such as one toggle per MCP profile. Checked toggles apply after the preset, in this order.",
+    noun: "toggle",
+    label: "Toggle",
+  },
+} as const;
 
 /** Multi-line textarea that commits on blur, so typing never round-trips settings. */
 function DraftTextarea({
@@ -324,10 +346,14 @@ function DraftTextarea({
 }
 
 function ProviderLaunchPresets({
+  configKey,
   value,
   onChange,
-}: Pick<ProviderSettingsFormProps, "value" | "onChange">) {
-  const presets = useMemo(() => readLaunchPresets(value), [value]);
+}: Pick<ProviderSettingsFormProps, "value" | "onChange"> & {
+  readonly configKey: LaunchPresetConfigKey;
+}) {
+  const section = launchPresetSections[configKey];
+  const presets = useMemo(() => readLaunchPresets(value, configKey), [value, configKey]);
   const latestRef = useRef({ value, presets });
   useEffect(() => {
     latestRef.current = { value, presets };
@@ -338,8 +364,8 @@ function ProviderLaunchPresets({
       latestRef.current.value !== null && typeof latestRef.current.value === "object"
         ? { ...(latestRef.current.value as Record<string, unknown>) }
         : {};
-    if (next.length === 0) delete config.launchPresets;
-    else config.launchPresets = next;
+    if (next.length === 0) delete config[configKey];
+    else config[configKey] = next;
     latestRef.current = { value: config, presets: next };
     onChange(Object.keys(config).length > 0 ? config : undefined);
   };
@@ -352,8 +378,8 @@ function ProviderLaunchPresets({
 
   return (
     <SettingsRow
-      title="Launch presets"
-      description="Extra arguments and environment to start the agent with, chosen per thread from the composer. Presets are visible to connected clients, so keep secrets in Environment."
+      title={section.title}
+      description={section.description}
       control={
         <Button
           type="button"
@@ -363,8 +389,8 @@ function ProviderLaunchPresets({
             publish([
               ...latestRef.current.presets,
               {
-                id: makeLaunchPresetId(),
-                label: `Preset ${latestRef.current.presets.length + 1}`,
+                id: makeLaunchPresetId(section.noun),
+                label: `${section.label} ${latestRef.current.presets.length + 1}`,
                 args: [],
                 env: [],
               },
@@ -372,7 +398,7 @@ function ProviderLaunchPresets({
           }
         >
           <PlusIcon />
-          Add preset
+          Add {section.noun}
         </Button>
       }
     >
@@ -388,7 +414,7 @@ function ProviderLaunchPresets({
                     const label = next.trim();
                     if (label.length > 0) update(preset.id, { label });
                   }}
-                  aria-label="Preset name"
+                  aria-label={`${section.label} name`}
                   spellCheck={false}
                 />
                 <Button
@@ -398,7 +424,7 @@ function ProviderLaunchPresets({
                   onClick={() =>
                     publish(latestRef.current.presets.filter((current) => current.id !== preset.id))
                   }
-                  aria-label={`Remove preset ${preset.label}`}
+                  aria-label={`Remove ${section.noun} ${preset.label}`}
                 >
                   <XIcon />
                 </Button>
@@ -746,7 +772,10 @@ export function ProviderSettingsForm({
       ))}
       {isLocalAcp ? <ProviderCommandArguments value={value} onChange={onChange} /> : null}
       {definition.value === "acpRegistry" && variant === "settings" ? (
-        <ProviderLaunchPresets value={value} onChange={onChange} />
+        <>
+          <ProviderLaunchPresets configKey="launchPresets" value={value} onChange={onChange} />
+          <ProviderLaunchPresets configKey="launchToggles" value={value} onChange={onChange} />
+        </>
       ) : null}
     </>
   );

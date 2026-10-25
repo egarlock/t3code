@@ -135,8 +135,8 @@ for those actions.
   keeping the registry-declared arguments and environment.
 - **Authentication method** picks a specific method when the agent advertises more than one.
 - **Custom models** adds model IDs the agent does not report.
-- **Launch presets** start the agent with different extra arguments and environment variables,
-  chosen per thread. See below.
+- **Launch presets** and **launch toggles** start the agent with different extra arguments and
+  environment variables, chosen per thread. See below.
 
 ## Launch presets
 
@@ -151,5 +151,11 @@ restarts the agent before the next turn and resumes the conversation when the ag
 session loading. Agents without session loading keep their running process until the thread
 restarts.
 
-Preset values are stored in settings that every connected client can read. Put API keys and other
+**Launch toggles** work the same way but can be combined. Add them under **Launch toggles** in the
+same settings page, for example one toggle per MCP profile. Toggles appear as a checkbox menu next to
+the model options in the composer. Checked toggles add their arguments and environment after the
+preset's, in the order they are listed in settings, and changing them restarts the agent the same
+way a preset change does.
+
+Preset and toggle values are stored in settings that every connected client can read. Put API keys and other
 secrets in the instance's environment settings and mark them sensitive, rather than in a preset.

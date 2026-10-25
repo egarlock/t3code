@@ -125,7 +125,7 @@ describe("acpRegistrySnapshotReadiness", () => {
       applyAcpRegistryLiveConfiguration(
         snapshot,
         { models: [], currentModelId: null, configOptions: [] },
-        { customModels: [], launchPresets: [] },
+        { customModels: [], launchPresets: [], launchToggles: [] },
       ).auth.status,
     ).toBe("unknown");
   });
@@ -172,7 +172,7 @@ describe("acpRegistrySnapshotReadiness", () => {
           currentModelId: "live-model",
           configOptions: [],
         },
-        { customModels: [], launchPresets: [] },
+        { customModels: [], launchPresets: [], launchToggles: [] },
       ),
     ).toMatchObject({
       auth: { status: "unknown", canLogout: true },
@@ -181,12 +181,13 @@ describe("acpRegistrySnapshotReadiness", () => {
     });
   });
 
-  it("adds launch presets as a composer option on every model", () => {
+  it("adds launch presets and toggles as composer options on every model", () => {
     const provider = buildCheckedAcpRegistrySnapshot({
       ...identity,
       settings: decodeSettings({
         agentId: "test-agent",
         launchPresets: [{ id: "ado", label: "ADO tools", args: ["--profile-only", "ado"] }],
+        launchToggles: [{ id: "teams", label: "Teams", args: ["--profile-only", "teams"] }],
       }),
       checkedAt: "2026-08-13T10:00:00.000Z",
       inspection: {
@@ -221,6 +222,12 @@ describe("acpRegistrySnapshotReadiness", () => {
           { id: "ado", label: "ADO tools" },
         ],
       }),
+      {
+        id: "_t3/launch-toggle:teams",
+        label: "Teams",
+        type: "boolean",
+        currentValue: false,
+      },
     ]);
   });
 
