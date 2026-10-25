@@ -56,6 +56,7 @@ import type * as EffectAcpSchema from "effect-acp/compat";
 
 import * as ServerConfig from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { ACP_LAUNCH_PRESET_OPTION_ID } from "../../provider/acp/AcpLaunchPresets.ts";
 import * as AcpSessionRuntime from "../../provider/acp/AcpSessionRuntime.ts";
 import {
   extractXAiAcpSubagentEndNotice,
@@ -12258,6 +12259,115 @@ describe("AcpAdapterV2", () => {
         Option.isSome(loadAfterRestart),
         "post-interrupt startTurn should respawn the runtime and replay session/resume",
       );
+    }).pipe(Effect.provide(testLayer), Effect.scoped),
+  );
+
+  it.effect("respawns and reloads the session when a turn changes the launch preset", () =>
+    Effect.gen(function* () {
+      const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const path = yield* Path.Path;
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const selfInvocation = yield* resolveSelfInvocation();
+      const mockAgentPath = yield* path.fromFileUrl(
+        new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+      );
+      const protocolEvents = yield* Queue.bounded<EffectAcpProtocol.AcpProtocolLogEvent>(512);
+      const instanceId = ProviderInstanceId.make("acp-test");
+      const presetOf = (selection: ModelSelection) =>
+        String(
+          selection.options?.find((option) => option.id === ACP_LAUNCH_PRESET_OPTION_ID)?.value ??
+            "",
+        );
+      const launchedPresets: Array<string> = [];
+      const mockRuntime = makeMockRuntime({ childProcessSpawner, mockAgentPath, protocolEvents });
+      const adapter = makeAcpAdapterV2({
+        crypto: yield* Crypto.Crypto,
+        instanceId,
+        flavor: {
+          driver: ACP_TEST_DRIVER,
+          capabilities: AcpProviderCapabilitiesV2,
+          runtimeLaunchKey: presetOf,
+          makeRuntime: (runtimeInput) => {
+            launchedPresets.push(presetOf(runtimeInput.modelSelection));
+            return mockRuntime(runtimeInput);
+          },
+        },
+        fileSystem,
+        idAllocator,
+        serverConfig,
+        selfInvocation,
+      });
+      const threadId = ThreadId.make("thread-acp-launch-preset");
+      const runtimePolicy = ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: process.cwd(),
+      });
+      const defaultSelection = { instanceId, model: "default" } satisfies ModelSelection;
+      const presetSelection = {
+        instanceId,
+        model: "default",
+        options: [{ id: ACP_LAUNCH_PRESET_OPTION_ID, value: "ado" }],
+      } satisfies ModelSelection;
+      const runtime = yield* adapter.openSession({
+        threadId,
+        providerSessionId: ProviderSessionId.make("provider-session-acp-launch-preset"),
+        modelSelection: defaultSelection,
+        runtimePolicy,
+      });
+      const providerThread = yield* runtime.ensureThread({
+        threadId,
+        modelSelection: defaultSelection,
+        runtimePolicy,
+      });
+      const now = yield* DateTime.now;
+      const runTurn = (ordinal: number, modelSelection: ModelSelection) =>
+        runtime
+          .startTurn(
+            makeTurnInput({
+              threadId,
+              providerThread,
+              instanceId,
+              runtimePolicy,
+              now,
+              ordinal,
+              modelSelection,
+            }),
+          )
+          .pipe(
+            Effect.andThen(
+              runtime.events.pipe(
+                Stream.filter((event) => event.type === "turn.terminal"),
+                Stream.runHead,
+              ),
+            ),
+          );
+
+      yield* runTurn(1, defaultSelection);
+      assert.deepEqual(launchedPresets, [""]);
+      yield* Queue.takeAll(protocolEvents);
+
+      yield* runTurn(2, presetSelection);
+      assert.deepEqual(launchedPresets, ["", "ado"]);
+      const secondTurnRequests = Array.from(yield* Queue.takeAll(protocolEvents)).filter(
+        (event) => event.direction === "outgoing",
+      );
+      const secondTurnMethods = secondTurnRequests.map(rawProtocolMethod);
+      assert.isTrue(
+        secondTurnMethods.includes("session/load") || secondTurnMethods.includes("session/resume"),
+        "the respawned agent should reload the existing native session",
+      );
+      assert.isFalse(
+        secondTurnRequests.some(
+          (event) => rawProtocolRequestParam(event, "configId") === ACP_LAUNCH_PRESET_OPTION_ID,
+        ),
+        "launch presets must never be sent to the agent as a config option",
+      );
+
+      yield* runTurn(3, presetSelection);
+      assert.deepEqual(launchedPresets, ["", "ado"]);
     }).pipe(Effect.provide(testLayer), Effect.scoped),
   );
 

@@ -95,6 +95,7 @@ import {
   ACP_EMPTY_OPTION_VALUE,
   ACP_SESSION_MODE_OPTION_ID,
 } from "../../provider/acp/AcpSessionConfig.ts";
+import { ACP_LAUNCH_PRESET_OPTION_ID } from "../../provider/acp/AcpLaunchPresets.ts";
 import * as AcpSessionRuntime from "../../provider/acp/AcpSessionRuntime.ts";
 import {
   t3AcpPromptWithInstructions,
@@ -139,6 +140,11 @@ export interface AcpAdapterV2RuntimeInput {
    * so flavors that encode permissions in the launch command (Grok) read it here.
    */
   readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
+  /**
+   * Selection the process is launched for. Flavors with `runtimeLaunchKey`
+   * read launch-time choices (such as ACP launch presets) from it.
+   */
+  readonly modelSelection: ModelSelection;
   readonly mcpServers: ReadonlyArray<EffectAcpSchema.McpServer>;
   readonly acpMcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
   /** Scoped credentials for terminal fallback when an ACP agent drops `mcpServers`. */
@@ -245,6 +251,12 @@ export interface AcpAdapterV2Flavor {
     Crypto.Crypto | Scope.Scope
   >;
   readonly resolveModelId?: (selection: ModelSelection) => string | undefined;
+  /**
+   * Identifies the parts of a selection that are baked into the agent process
+   * at launch. When a turn's key differs from the running process's key, the
+   * runtime respawns and reloads the native session before the turn starts.
+   */
+  readonly runtimeLaunchKey?: (selection: ModelSelection) => string;
   /**
    * Replaces the default model application on session setup. Returns the model
    * the session now runs on. Antigravity resolves its provider-default alias
@@ -1682,6 +1694,7 @@ export function makeAcpAdapterV2(
         const activeInteractionMode = yield* Ref.make<ProviderInteractionMode | null>(null);
         const promptInstructionStates = yield* Ref.make(new Map<string, T3AcpInstructionState>());
         const runtimeRestartRequired = yield* Ref.make(false);
+        let runtimeModelSelection = input.modelSelection;
         const runtimeTeardownState = yield* Ref.make<AcpRuntimeTeardownState>({ _tag: "Idle" });
         const runtimeCallbackGeneration = yield* Ref.make(0);
         const runtimeCallbackGenerationCounter = yield* Ref.make(0);
@@ -2078,6 +2091,7 @@ export function makeAcpAdapterV2(
           return {
             cwd: input.runtimePolicy.cwd ?? process.cwd(),
             runtimePolicy: input.runtimePolicy,
+            modelSelection: runtimeModelSelection,
             mcpServers: mcpContext.servers,
             acpMcpServers: mcpContext.acpServers,
             ...(mcpContext.processEnvironment === undefined
@@ -6283,9 +6297,13 @@ export function makeAcpAdapterV2(
           const modeSelection = hasNativeConfigWithSyntheticModeId
             ? undefined
             : optionSelections.find((selection) => selection.id === ACP_SESSION_MODE_OPTION_ID);
-          const configSelections = hasNativeConfigWithSyntheticModeId
-            ? optionSelections
-            : optionSelections.filter((selection) => selection.id !== ACP_SESSION_MODE_OPTION_ID);
+          // Launch presets are applied when the process spawns, never as config.
+          const configSelections = optionSelections.filter(
+            (selection) =>
+              (hasNativeConfigWithSyntheticModeId || selection.id !== ACP_SESSION_MODE_OPTION_ID) &&
+              (availableConfigIds.has(ACP_LAUNCH_PRESET_OPTION_ID) ||
+                selection.id !== ACP_LAUNCH_PRESET_OPTION_ID),
+          );
           // Probe-time descriptors are a per-model union, so a stored
           // selection can reference an option the live session does not
           // expose (Kilo advertises per-model "effort" descriptors while its
@@ -6839,6 +6857,20 @@ export function makeAcpAdapterV2(
             // requests can never inherit the previously active thread's policy.
             latestRuntimePolicy = turnInput.runtimePolicy;
             const requestedSessionId = yield* nativeThreadId(driver, turnInput.providerThread);
+            if (
+              flavor.runtimeLaunchKey !== undefined &&
+              flavor.runtimeLaunchKey(turnInput.modelSelection) !==
+                flavor.runtimeLaunchKey(runtimeModelSelection)
+            ) {
+              if (canLoadSession || canResumeSession) {
+                runtimeModelSelection = turnInput.modelSelection;
+                yield* Ref.set(runtimeRestartRequired, true);
+              } else {
+                yield* Effect.logWarning(
+                  "ACP launch settings changed, but the agent cannot reload sessions; keeping the running process",
+                ).pipe(Effect.annotateLogs({ driver, threadId: turnInput.threadId }));
+              }
+            }
             const restartAfterInterrupt = yield* restartRuntimeAfterTeardownIfRequired(
               turnInput.threadId,
             );

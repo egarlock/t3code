@@ -30,6 +30,10 @@ import {
 import * as AcpRegistrySupport from "../../provider/acp/AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "../../provider/acp/AcpRegistryRuntimeCoordinator.ts";
 import * as AcpSessionRuntime from "../../provider/acp/AcpSessionRuntime.ts";
+import {
+  applyAcpLaunchPreset,
+  selectedAcpLaunchPreset,
+} from "../../provider/acp/AcpLaunchPresets.ts";
 import { makeAcpNativeLoggerFactory } from "../../provider/acp/AcpNativeLogging.ts";
 import * as ProviderEventLoggers from "../../provider/Layers/ProviderEventLoggers.ts";
 import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanceEnvironment.ts";
@@ -146,7 +150,7 @@ function makeAcpRegistryRuntime(options: AcpRegistryAdapterV2Options) {
     Crypto.Crypto | Scope.Scope
   > =>
     Effect.gen(function* () {
-      const { processEnvironment, ...runtimeInput } = input;
+      const { processEnvironment, modelSelection, ...runtimeInput } = input;
       const resolved = yield* options.resolver
         .resolve(options.settings, input.cwd, options.environment)
         .pipe(
@@ -158,15 +162,19 @@ function makeAcpRegistryRuntime(options: AcpRegistryAdapterV2Options) {
               }),
           ),
         );
+      const spawn = applyAcpLaunchPreset(
+        resolved.spawn,
+        selectedAcpLaunchPreset(options.settings.launchPresets, modelSelection),
+      );
       const context = yield* Layer.build(
         AcpSessionRuntime.layer({
           ...runtimeInput,
           spawn:
             processEnvironment === undefined
-              ? resolved.spawn
+              ? spawn
               : {
-                  ...resolved.spawn,
-                  env: { ...resolved.spawn.env, ...processEnvironment },
+                  ...spawn,
+                  env: { ...spawn.env, ...processEnvironment },
                 },
           ...(options.settings.authMethodId ? { authMethodId: options.settings.authMethodId } : {}),
         }).pipe(
@@ -208,6 +216,8 @@ export function makeAcpRegistryAdapterV2(options: AcpRegistryAdapterV2Options) {
         }
       : {}),
     makeRuntime: options.makeRuntime ?? makeAcpRegistryRuntime(options),
+    runtimeLaunchKey: (selection) =>
+      selectedAcpLaunchPreset(options.settings.launchPresets, selection)?.id ?? "",
     ...(runtimeCoordinator === undefined
       ? {}
       : {

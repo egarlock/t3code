@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type {
+  AcpLaunchPreset,
   ProviderSettingsFormAnnotation,
   ProviderSettingsFormControl,
   ProviderSettingsFormOption,
@@ -232,6 +233,194 @@ function ProviderCommandArguments({
               >
                 <XIcon />
               </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </SettingsRow>
+  );
+}
+
+/** One literal argument per non-empty line. */
+export function parseLaunchPresetArgs(text: string): Array<string> {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/** `NAME=value` per line; the value keeps everything after the first `=`. */
+export function parseLaunchPresetEnv(text: string): AcpLaunchPreset["env"] {
+  return text.split("\n").flatMap((line) => {
+    const separator = line.indexOf("=");
+    const name = (separator === -1 ? line : line.slice(0, separator)).trim();
+    if (name.length === 0) return [];
+    return [{ name, value: separator === -1 ? "" : line.slice(separator + 1) }];
+  });
+}
+
+export function formatLaunchPresetEnv(env: AcpLaunchPreset["env"]): string {
+  return env.map((variable) => `${variable.name}=${variable.value}`).join("\n");
+}
+
+function readLaunchPresets(config: unknown): ReadonlyArray<AcpLaunchPreset> {
+  const configured =
+    config !== null && typeof config === "object"
+      ? (config as Record<string, unknown>).launchPresets
+      : undefined;
+  if (!Array.isArray(configured)) return [];
+  return configured.flatMap((entry): Array<AcpLaunchPreset> => {
+    if (entry === null || typeof entry !== "object") return [];
+    const { id, label, args, env } = entry as Record<string, unknown>;
+    if (typeof id !== "string" || typeof label !== "string") return [];
+    return [
+      {
+        id,
+        label,
+        args: Array.isArray(args)
+          ? args.filter((argument): argument is string => typeof argument === "string")
+          : [],
+        env: Array.isArray(env)
+          ? env.flatMap((variable) =>
+              variable !== null &&
+              typeof variable === "object" &&
+              typeof variable.name === "string" &&
+              typeof variable.value === "string"
+                ? [{ name: variable.name, value: variable.value }]
+                : [],
+            )
+          : [],
+      },
+    ];
+  });
+}
+
+const makeLaunchPresetId = () =>
+  `preset-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+/** Multi-line textarea that commits on blur, so typing never round-trips settings. */
+function DraftTextarea({
+  value,
+  onCommit,
+  ...rest
+}: Omit<ComponentProps<typeof Textarea>, "value" | "onChange" | "onBlur"> & {
+  readonly value: string;
+  readonly onCommit: (next: string) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <Textarea
+      {...rest}
+      value={draft ?? value}
+      onFocus={() => setDraft(value)}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        const next = draft ?? value;
+        setDraft(null);
+        if (next !== value) onCommit(next);
+      }}
+    />
+  );
+}
+
+function ProviderLaunchPresets({
+  value,
+  onChange,
+}: Pick<ProviderSettingsFormProps, "value" | "onChange">) {
+  const presets = useMemo(() => readLaunchPresets(value), [value]);
+  const latestRef = useRef({ value, presets });
+  useEffect(() => {
+    latestRef.current = { value, presets };
+  }, [value, presets]);
+
+  const publish = (next: ReadonlyArray<AcpLaunchPreset>) => {
+    const config =
+      latestRef.current.value !== null && typeof latestRef.current.value === "object"
+        ? { ...(latestRef.current.value as Record<string, unknown>) }
+        : {};
+    if (next.length === 0) delete config.launchPresets;
+    else config.launchPresets = next;
+    latestRef.current = { value: config, presets: next };
+    onChange(Object.keys(config).length > 0 ? config : undefined);
+  };
+  const update = (id: string, patch: Partial<AcpLaunchPreset>) =>
+    publish(
+      latestRef.current.presets.map((preset) =>
+        preset.id === id ? { ...preset, ...patch } : preset,
+      ),
+    );
+
+  return (
+    <SettingsRow
+      title="Launch presets"
+      description="Extra arguments and environment to start the agent with, chosen per thread from the composer. Presets are visible to connected clients, so keep secrets in Environment."
+      control={
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            publish([
+              ...latestRef.current.presets,
+              {
+                id: makeLaunchPresetId(),
+                label: `Preset ${latestRef.current.presets.length + 1}`,
+                args: [],
+                env: [],
+              },
+            ])
+          }
+        >
+          <PlusIcon />
+          Add preset
+        </Button>
+      }
+    >
+      {presets.length > 0 ? (
+        <div className="mt-3 min-w-0 space-y-3 pb-2">
+          {presets.map((preset) => (
+            <div key={preset.id} className="min-w-0 space-y-1.5 rounded-lg border p-2">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <DraftInput
+                  size="sm"
+                  value={preset.label}
+                  onCommit={(next) => {
+                    const label = next.trim();
+                    if (label.length > 0) update(preset.id, { label });
+                  }}
+                  aria-label="Preset name"
+                  spellCheck={false}
+                />
+                <Button
+                  type="button"
+                  size="icon-micro"
+                  variant="ghost-destructive"
+                  onClick={() =>
+                    publish(latestRef.current.presets.filter((current) => current.id !== preset.id))
+                  }
+                  aria-label={`Remove preset ${preset.label}`}
+                >
+                  <XIcon />
+                </Button>
+              </div>
+              <div className="grid min-w-0 gap-1.5 @min-[32rem]/settings-row:grid-cols-2">
+                <DraftTextarea
+                  size="sm"
+                  value={preset.args.join("\n")}
+                  onCommit={(next) => update(preset.id, { args: parseLaunchPresetArgs(next) })}
+                  placeholder={"Arguments, one per line\n--profile-only\nado"}
+                  aria-label={`${preset.label} arguments`}
+                  spellCheck={false}
+                />
+                <DraftTextarea
+                  size="sm"
+                  value={formatLaunchPresetEnv(preset.env)}
+                  onCommit={(next) => update(preset.id, { env: parseLaunchPresetEnv(next) })}
+                  placeholder={"Environment, NAME=value per line\nCOPILOT_OFFLINE=true"}
+                  aria-label={`${preset.label} environment`}
+                  spellCheck={false}
+                />
+              </div>
             </div>
           ))}
         </div>
@@ -556,6 +745,9 @@ export function ProviderSettingsForm({
         />
       ))}
       {isLocalAcp ? <ProviderCommandArguments value={value} onChange={onChange} /> : null}
+      {definition.value === "acpRegistry" && variant === "settings" ? (
+        <ProviderLaunchPresets value={value} onChange={onChange} />
+      ) : null}
     </>
   );
 }

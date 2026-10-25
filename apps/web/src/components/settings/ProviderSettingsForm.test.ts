@@ -4,7 +4,10 @@ import { ProviderDriverKind } from "@t3tools/contracts";
 import { DRIVER_OPTION_BY_VALUE } from "./providerDriverMeta";
 import {
   deriveProviderSettingsFields,
+  formatLaunchPresetEnv,
   nextProviderConfigWithFieldValue,
+  parseLaunchPresetArgs,
+  parseLaunchPresetEnv,
 } from "./ProviderSettingsForm";
 
 describe("ProviderSettingsForm helpers", () => {
@@ -185,5 +188,23 @@ describe("ProviderSettingsForm helpers", () => {
     );
 
     expect(next).toEqual({ experimental: false });
+  });
+
+  it("parses launch preset arguments as one literal per line", () => {
+    expect(parseLaunchPresetArgs("--profile-only\n  ado \n\n--model=gpt 5\n")).toEqual([
+      "--profile-only",
+      "ado",
+      "--model=gpt 5",
+    ]);
+  });
+
+  it("round-trips launch preset environment lines, keeping = inside values", () => {
+    const env = parseLaunchPresetEnv("COPILOT_OFFLINE=true\n\nURL=http://h/?a=b\n =ignored\nEMPTY");
+    expect(env).toEqual([
+      { name: "COPILOT_OFFLINE", value: "true" },
+      { name: "URL", value: "http://h/?a=b" },
+      { name: "EMPTY", value: "" },
+    ]);
+    expect(parseLaunchPresetEnv(formatLaunchPresetEnv(env))).toEqual(env);
   });
 });

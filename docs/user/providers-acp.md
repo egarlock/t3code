@@ -135,3 +135,21 @@ for those actions.
   keeping the registry-declared arguments and environment.
 - **Authentication method** picks a specific method when the agent advertises more than one.
 - **Custom models** adds model IDs the agent does not report.
+- **Launch presets** start the agent with different extra arguments and environment variables,
+  chosen per thread. See below.
+
+## Launch presets
+
+Launch presets let one instance start its agent in several ways, such as with different MCP
+profiles or against a local model server. Add them under **Settings → Providers → (instance) →
+Launch presets**: give each a name, one argument per line, and one `NAME=value` environment
+variable per line. Arguments are appended after the instance's own arguments.
+
+Pick a preset per thread from **Launch preset** in the composer's model options menu; **Default**
+uses only the instance's own command and environment. Changing the preset on an existing thread
+restarts the agent before the next turn and resumes the conversation when the agent supports
+session loading. Agents without session loading keep their running process until the thread
+restarts.
+
+Preset values are stored in settings that every connected client can read. Put API keys and other
+secrets in the instance's environment settings and mark them sensitive, rather than in a preset.

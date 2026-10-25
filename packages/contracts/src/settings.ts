@@ -34,6 +34,7 @@ import {
 } from "./preview.ts";
 import {
   ProviderInstanceConfig,
+  ProviderInstanceEnvironmentVariableName,
   ProviderInstanceId,
   type ProviderDriverKind,
 } from "./providerInstance.ts";
@@ -869,6 +870,25 @@ export type PiSettings = typeof PiSettings.Type;
 export const AcpRegistryDistributionPreference = Schema.Literals(["auto", "binary", "npx", "uvx"]);
 export type AcpRegistryDistributionPreference = typeof AcpRegistryDistributionPreference.Type;
 
+/**
+ * A named launch variant for an ACP agent, chosen per thread in the composer.
+ * Its arguments are appended to the agent command and its environment is
+ * layered over the instance environment, so one instance can start the same
+ * agent with different tool profiles or a local model backend.
+ */
+export const AcpLaunchPreset = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  args: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  env: Schema.Array(
+    Schema.Struct({
+      name: ProviderInstanceEnvironmentVariableName,
+      value: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+    }),
+  ).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type AcpLaunchPreset = typeof AcpLaunchPreset.Type;
+
 export const AcpRegistrySettings = makeProviderSettingsSchema(
   {
     source: Schema.Literals(["registry", "local"]).pipe(
@@ -923,6 +943,10 @@ export const AcpRegistrySettings = makeProviderSettingsSchema(
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     customModels: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    launchPresets: Schema.Array(AcpLaunchPreset).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
