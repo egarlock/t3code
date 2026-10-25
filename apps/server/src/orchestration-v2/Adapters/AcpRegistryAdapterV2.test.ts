@@ -131,6 +131,7 @@ describe("AcpRegistryAdapterV2", () => {
       authMethodId: "",
       distribution: "auto",
       customModels: [],
+      launchPresets: [],
     });
   });
 

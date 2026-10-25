@@ -125,7 +125,7 @@ describe("acpRegistrySnapshotReadiness", () => {
       applyAcpRegistryLiveConfiguration(
         snapshot,
         { models: [], currentModelId: null, configOptions: [] },
-        [],
+        { customModels: [], launchPresets: [] },
       ).auth.status,
     ).toBe("unknown");
   });
@@ -172,13 +172,56 @@ describe("acpRegistrySnapshotReadiness", () => {
           currentModelId: "live-model",
           configOptions: [],
         },
-        [],
+        { customModels: [], launchPresets: [] },
       ),
     ).toMatchObject({
       auth: { status: "unknown", canLogout: true },
       nativeSessions: { canList: true, canLoad: true, canResume: true },
       models: [{ slug: "live-model", isDefault: true }],
     });
+  });
+
+  it("adds launch presets as a composer option on every model", () => {
+    const provider = buildCheckedAcpRegistrySnapshot({
+      ...identity,
+      settings: decodeSettings({
+        agentId: "test-agent",
+        launchPresets: [{ id: "ado", label: "ADO tools", args: ["--profile-only", "ado"] }],
+      }),
+      checkedAt: "2026-08-13T10:00:00.000Z",
+      inspection: {
+        status: "ready",
+        agentId: "test-agent",
+        version: "1.0.0",
+        distribution: "npx",
+      },
+      probe: {
+        probe: {
+          instanceId: identity.instanceId,
+          ready: true,
+          icon: null,
+          authMethods: [],
+          models: [{ id: "probe-model", name: "Probe model", description: null }],
+          currentModelId: "probe-model",
+          configOptions: [],
+          sessionManagement: noSessionManagement,
+        },
+        slashCommands: [],
+        skills: [],
+      },
+    });
+
+    expect(provider.models[0]?.capabilities?.optionDescriptors).toEqual([
+      expect.objectContaining({
+        id: "_t3/launch-preset",
+        type: "select",
+        currentValue: "_t3/none",
+        options: [
+          { id: "_t3/none", label: "Default", isDefault: true },
+          { id: "ado", label: "ADO tools" },
+        ],
+      }),
+    ]);
   });
 
   it("maps registry inspection status to provider readiness", () => {
