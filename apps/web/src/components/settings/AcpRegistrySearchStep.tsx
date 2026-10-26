@@ -24,6 +24,11 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { isConfiguredAcpRegistryAgent } from "./AddProviderInstanceDialog.logic";
 import { ProviderDriverKind } from "@t3tools/contracts";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
+import {
+  ACP_PROVIDER_PRESETS,
+  type AcpProviderPreset,
+  isConfiguredAcpProviderPreset,
+} from "./acpProviderPresets";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error && error.message.trim()
@@ -37,6 +42,7 @@ interface AcpRegistrySearchStepProps {
   readonly onPrepared: (agent: AcpRegistrySearchAgent) => void;
   readonly onManualConfiguration: () => void;
   readonly onLocalConfiguration?: () => void;
+  readonly onPreset?: (preset: AcpProviderPreset) => void;
   readonly onLoadingChange?: (loading: boolean) => void;
   readonly onPreparingChange?: (preparing: boolean) => void;
 }
@@ -59,6 +65,7 @@ export function AcpRegistrySearchStep({
   onPrepared,
   onManualConfiguration,
   onLocalConfiguration,
+  onPreset,
   onLoadingChange,
   onPreparingChange,
 }: AcpRegistrySearchStepProps) {
@@ -141,6 +148,20 @@ export function AcpRegistrySearchStep({
       <h3 className="sr-only" id="acp-registry-search-heading">
         Choose an agent
       </h3>
+
+      {onPreset ? (
+        <div className="grid gap-2 sm:grid-cols-2" aria-label="Presets" role="group">
+          {ACP_PROVIDER_PRESETS.map((preset) => (
+            <AcpProviderPresetRow
+              alreadyAdded={isConfiguredAcpProviderPreset(providerInstances, preset)}
+              canAdd={canManageProviders && preparingId === null}
+              key={preset.id}
+              onAdd={onPreset}
+              preset={preset}
+            />
+          ))}
+        </div>
+      ) : null}
 
       <form className="flex flex-wrap items-center gap-2" onSubmit={handleSearch}>
         <InputGroup className="min-w-40 flex-1">
@@ -301,6 +322,42 @@ function AcpRegistryAgentRow({
           </Button>
         </div>
       </div>
+    </article>
+  );
+}
+
+function AcpProviderPresetRow({
+  preset,
+  alreadyAdded,
+  canAdd,
+  onAdd,
+}: {
+  readonly preset: AcpProviderPreset;
+  readonly alreadyAdded: boolean;
+  readonly canAdd: boolean;
+  readonly onAdd: (preset: AcpProviderPreset) => void;
+}) {
+  return (
+    <article className="flex min-w-0 items-center gap-3 rounded-lg bg-card px-3 py-2.5 ring-1 ring-black/5 dark:bg-white/3 dark:ring-white/5">
+      <ProviderInstanceIcon
+        driverKind={ProviderDriverKind.make("acpRegistry")}
+        displayName={preset.label}
+        acpRegistryIconUrl={preset.iconUrl}
+        iconClassName="size-6 rounded-md text-muted-foreground"
+      />
+      <div className="min-w-0 flex-1">
+        <h4 className="truncate text-sm font-medium text-foreground">{preset.label}</h4>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">{preset.description}</p>
+      </div>
+      <Button
+        aria-label={`${alreadyAdded ? "Add another" : "Add"} ${preset.label}`}
+        disabled={!canAdd}
+        onClick={() => onAdd(preset)}
+        size="xs"
+        variant="outline"
+      >
+        {alreadyAdded ? "Add again" : "Add"}
+      </Button>
     </article>
   );
 }
