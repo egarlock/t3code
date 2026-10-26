@@ -11,8 +11,9 @@
 # Installer output goes to ~/Library/Logs/t3code-local-update.log.
 set -euo pipefail
 
-APP_NAME="T3 Code (Alpha).app"
 APP_ID="com.t3tools.t3code"
+# Earlier bundle names for the same app id. Installing removes them so only one copy remains.
+LEGACY_APP_NAMES=("T3 Code (Alpha).app")
 INSTALL_DIR="/Applications"
 LOG_FILE="$HOME/Library/Logs/t3code-local-update.log"
 
@@ -36,6 +37,8 @@ for dir in /opt/homebrew/bin /opt/homebrew/opt/node@24/bin "$HOME/.local/share/t
   if [ -d "$dir" ]; then PATH="$dir:$PATH"; fi
 done
 export PATH
+
+APP_NAME="$(node -p 'require("./apps/desktop/package.json").productName').app"
 
 marker="$(mktemp -t t3code-update-marker)"
 if [ "$skip_build" = false ]; then
@@ -69,6 +72,8 @@ cat > "$installer" <<'INSTALLER'
 #!/bin/bash
 set -uo pipefail
 app_name="$1"; app_id="$2"; install_dir="$3"; new_app="$4"; work_dir="$5"
+shift 5
+legacy_app_names=("$@")
 target="$install_dir/$app_name"
 backup="$work_dir/previous.app"
 log() { echo "[$(date '+%Y-%m-%d %I:%M:%S %p %Z')] $*"; }
@@ -97,6 +102,12 @@ if ditto "$new_app" "$target"; then
   xattr -dr com.apple.quarantine "$target" 2>/dev/null || true
   rm -rf "$backup"
   log "Installed $target"
+  for legacy_name in "${legacy_app_names[@]}"; do
+    legacy="$install_dir/$legacy_name"
+    if [ "$legacy_name" != "$app_name" ] && [ -d "$legacy" ]; then
+      mv "$legacy" "$HOME/.Trash/" && log "Moved $legacy to the Trash"
+    fi
+  done
 else
   log "Copy failed; restoring the previous app."
   rm -rf "$target"
@@ -113,7 +124,7 @@ mkdir -p "$(dirname "$LOG_FILE")"
 # fork + setsid moves the installer out of this process group, so quitting the
 # app (and the agent that may be running this script) does not stop it.
 nohup /usr/bin/perl -MPOSIX -e 'fork and exit; POSIX::setsid(); exec @ARGV' -- \
-  "$installer" "$APP_NAME" "$APP_ID" "$INSTALL_DIR" "$new_app" "$work_dir" \
+  "$installer" "$APP_NAME" "$APP_ID" "$INSTALL_DIR" "$new_app" "$work_dir" "${LEGACY_APP_NAMES[@]}" \
   >>"$LOG_FILE" 2>&1 </dev/null &
 
 echo "Installer started; $APP_NAME will quit, update, and relaunch in a few seconds."
