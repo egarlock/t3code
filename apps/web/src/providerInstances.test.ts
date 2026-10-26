@@ -724,6 +724,36 @@ describe("provider icon metadata", () => {
     expect(restoredEntry?.enabled).toBe(true);
   });
 
+  it("uses a configured custom icon for registry and local-command instances", () => {
+    const instanceId = ProviderInstanceId.make("agency");
+    const driver = ProviderDriverKind.make("acpRegistry");
+    const registryIconUrl = "https://cdn.agentclientprotocol.com/registry/icons/swe-agent.svg";
+    const customIconUrl = "data:image/svg+xml,%3Csvg%2F%3E";
+    const snapshots = deriveProviderInstanceEntries([
+      { ...provider({ provider: driver, instanceId }), iconUrl: registryIconUrl },
+    ]);
+    const brand = (config: Record<string, unknown>) =>
+      applyProviderInstanceSettings(
+        snapshots,
+        {
+          providerInstances: { [instanceId]: { driver, enabled: true, config } },
+          projectSettingsOverrides: {},
+        },
+        null,
+      )[0];
+
+    const local = brand({ source: "local", commandPath: "agency", iconUrl: customIconUrl });
+    expect(local?.acpRegistryIconUrl).toBe(customIconUrl);
+    expect(local?.acpRegistryAgentId).toBeUndefined();
+
+    const registry = brand({ agentId: "swe-agent", registryIconUrl, iconUrl: customIconUrl });
+    expect(registry?.acpRegistryIconUrl).toBe(customIconUrl);
+    expect(registry?.acpRegistryAgentId).toBe("swe-agent");
+
+    const rejected = brand({ source: "local", iconUrl: "https://example.com/agency.svg" });
+    expect(rejected?.acpRegistryIconUrl).toBeUndefined();
+  });
+
   it("retains server-published registry icons without local settings", () => {
     const iconUrl = "https://cdn.agentclientprotocol.com/registry/icons/swe-agent.svg";
     const [entry] = deriveProviderInstanceEntries([

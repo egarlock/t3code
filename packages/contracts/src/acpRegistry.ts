@@ -41,6 +41,24 @@ export function resolveOfficialAcpRegistryIconUrl(icon: string | null | undefine
   }
 }
 
+const ACP_CUSTOM_ICON_MAX_LENGTH = 32 * 1_024;
+const ACP_CUSTOM_ICON_DATA_URL_PATTERN = /^data:image\/(?:svg\+xml|png|jpeg|webp|gif)[;,]/i;
+
+/**
+ * Resolves an ACP provider icon a user configured themselves. Inline image
+ * data URLs are accepted alongside official Registry URLs; other remote hosts
+ * stay rejected so a configured icon never makes the client contact a third
+ * party.
+ */
+export function resolveAcpProviderIconUrl(icon: string | null | undefined): string | null {
+  const trimmed = icon?.trim();
+  if (!trimmed) return null;
+  if (ACP_CUSTOM_ICON_DATA_URL_PATTERN.test(trimmed)) {
+    return trimmed.length <= ACP_CUSTOM_ICON_MAX_LENGTH ? trimmed : null;
+  }
+  return resolveOfficialAcpRegistryIconUrl(trimmed);
+}
+
 export const AcpRegistryDistribution = Schema.Literals(["binary", "npx", "uvx"]);
 export type AcpRegistryDistribution = typeof AcpRegistryDistribution.Type;
 

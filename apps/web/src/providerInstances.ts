@@ -1,6 +1,7 @@
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
+  resolveAcpProviderIconUrl,
   resolveProjectProviderInstanceEnabled,
   type ModelSelection,
   type ProjectId,
@@ -162,23 +163,38 @@ function applyProviderInstanceBranding(
     ? settings.providerInstances[entry.instanceId]
     : undefined;
   if (entry.driverKind !== "acpRegistry" || explicitInstance === undefined) return entry;
-  const config =
-    explicitInstance.config !== null && typeof explicitInstance.config === "object"
-      ? (explicitInstance.config as Readonly<Record<string, unknown>>)
-      : null;
-  if (config?.source === "local") {
-    return { ...entry, acpRegistryAgentId: undefined, acpRegistryIconUrl: undefined };
-  }
-  const agentId = config?.agentId;
-  const iconUrl = config?.registryIconUrl;
+  const branding = resolveAcpInstanceBranding(explicitInstance.config);
   return {
     ...entry,
-    ...(typeof agentId === "string" && agentId.trim()
-      ? { acpRegistryAgentId: agentId.trim() }
-      : {}),
-    ...(typeof iconUrl === "string" && iconUrl.trim()
-      ? { acpRegistryIconUrl: iconUrl.trim() }
-      : {}),
+    acpRegistryAgentId: branding.agentId ?? (branding.local ? undefined : entry.acpRegistryAgentId),
+    acpRegistryIconUrl: branding.iconUrl ?? (branding.local ? undefined : entry.acpRegistryIconUrl),
+  };
+}
+
+/**
+ * Reads the icon identity an ACP instance's settings imply. A user-configured
+ * `iconUrl` wins for both registry and local-command instances; registry
+ * branding is ignored for local commands so a stale agent never shows.
+ */
+export function resolveAcpInstanceBranding(config: unknown): {
+  readonly local: boolean;
+  readonly agentId: string | undefined;
+  readonly iconUrl: string | undefined;
+} {
+  const record =
+    config !== null && typeof config === "object"
+      ? (config as Readonly<Record<string, unknown>>)
+      : null;
+  const read = (key: string) => {
+    const value = record?.[key];
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  };
+  const local = record?.source === "local";
+  const customIconUrl = resolveAcpProviderIconUrl(read("iconUrl")) ?? undefined;
+  return {
+    local,
+    agentId: local ? undefined : read("agentId"),
+    iconUrl: customIconUrl ?? (local ? undefined : read("registryIconUrl")),
   };
 }
 

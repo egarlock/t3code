@@ -11,6 +11,7 @@ import {
   AcpRegistrySearchAgent,
   AcpRegistrySearchInput,
   officialAcpRegistryIconUrlForAgentId,
+  resolveAcpProviderIconUrl,
   resolveOfficialAcpRegistryIconUrl,
 } from "./acpRegistry.ts";
 
@@ -44,6 +45,25 @@ describe("ACP Registry contracts", () => {
         "https://user@cdn.agentclientprotocol.com/registry/v1/latest/pi-acp.svg",
       ),
     ).toBeNull();
+  });
+
+  it("accepts inline image data URLs and official URLs as custom provider icons", () => {
+    const svg =
+      "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
+    expect(resolveAcpProviderIconUrl(`  ${svg}  `)).toBe(svg);
+    expect(resolveAcpProviderIconUrl("data:image/png;base64,iVBORw0KGgo=")).toBe(
+      "data:image/png;base64,iVBORw0KGgo=",
+    );
+    expect(
+      resolveAcpProviderIconUrl(
+        "https://cdn.agentclientprotocol.com/registry/v1/latest/pi-acp.svg",
+      ),
+    ).toBe("https://cdn.agentclientprotocol.com/registry/v1/latest/pi-acp.svg");
+    expect(resolveAcpProviderIconUrl("https://example.com/icon.svg")).toBeNull();
+    expect(resolveAcpProviderIconUrl("data:text/html,<script>alert(1)</script>")).toBeNull();
+    expect(resolveAcpProviderIconUrl("javascript:alert(1)")).toBeNull();
+    expect(resolveAcpProviderIconUrl(`data:image/png;base64,${"A".repeat(40_000)}`)).toBeNull();
+    expect(resolveAcpProviderIconUrl("   ")).toBeNull();
   });
 
   it("decodes bounded search and prepare payloads", () => {
