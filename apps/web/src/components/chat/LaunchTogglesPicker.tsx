@@ -15,6 +15,7 @@ import { PlugIcon } from "lucide-react";
 import { memo } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../../composerDraftStore";
+import { cn } from "~/lib/utils";
 import { getProviderModelCapabilities } from "../../providerModels";
 import { Menu, MenuCheckboxItem, MenuGroup, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -48,6 +49,8 @@ export interface LaunchTogglesProps {
   models: ReadonlyArray<ServerProviderModel>;
   modelOptions: ReadonlyArray<ProviderOptionSelection> | undefined;
   planModeEnabled: boolean;
+  /** Saves outside the composer draft store, such as a settings default. */
+  onModelOptionsChange?: (options: ReadonlyArray<ProviderOptionSelection> | undefined) => void;
 }
 
 function getLaunchToggleDescriptors(
@@ -89,6 +92,7 @@ function useLaunchToggles({
   models,
   modelOptions,
   planModeEnabled,
+  onModelOptionsChange,
 }: LaunchTogglesProps) {
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const { descriptors, toggles } = getLaunchToggleDescriptors({
@@ -99,15 +103,21 @@ function useLaunchToggles({
     planModeEnabled,
   });
   const setToggle = (id: string, checked: boolean) => {
+    // Write every descriptor so the other composer options keep their values.
+    const next = buildProviderOptionSelectionsFromDescriptors(
+      descriptors.map((descriptor) =>
+        descriptor.id === id && descriptor.type === "boolean"
+          ? { ...descriptor, currentValue: checked }
+          : descriptor,
+      ),
+    );
+    if (onModelOptionsChange) {
+      onModelOptionsChange(next);
+      return;
+    }
     const target = threadRef ?? draftId;
     if (!target) return;
-    // Write every descriptor so the other composer options keep their values.
-    const next = descriptors.map((descriptor) =>
-      descriptor.id === id && descriptor.type === "boolean"
-        ? { ...descriptor, currentValue: checked }
-        : descriptor,
-    );
-    setProviderModelOptions(target, provider, buildProviderOptionSelectionsFromDescriptors(next), {
+    setProviderModelOptions(target, provider, next, {
       ...(instanceId ? { instanceId } : {}),
       model,
       persistSticky: true,
@@ -138,16 +148,18 @@ export const LaunchTogglesMenuContent = memo(function LaunchTogglesMenuContent(
   );
 });
 
-/** Composer dropdown for switching launch toggles on and off independently. */
+/** Dropdown for switching launch toggles on and off independently, in the composer or settings. */
 export const LaunchTogglesPicker = memo(function LaunchTogglesPicker({
   size = "sm",
   hidden = false,
   isComposerOwned,
+  triggerClassName,
   ...props
 }: LaunchTogglesProps & {
   size?: ComposerControlSize;
   hidden?: boolean;
   isComposerOwned?: boolean;
+  triggerClassName?: string;
 }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [isMenuOpen, setIsMenuOpen] = useComposerMenuState(hidden);
@@ -165,7 +177,10 @@ export const LaunchTogglesPicker = memo(function LaunchTogglesPicker({
                 <ComposerControl
                   aria-label={`Launch toggles: ${label}`}
                   size={size}
-                  className="min-w-0 max-w-48 shrink justify-start overflow-hidden whitespace-nowrap"
+                  className={cn(
+                    "min-w-0 max-w-48 shrink justify-start overflow-hidden whitespace-nowrap",
+                    triggerClassName,
+                  )}
                 />
               }
             />
