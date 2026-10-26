@@ -105,7 +105,8 @@ if ditto "$new_app" "$target"; then
   for legacy_name in "${legacy_app_names[@]}"; do
     legacy="$install_dir/$legacy_name"
     if [ "$legacy_name" != "$app_name" ] && [ -d "$legacy" ]; then
-      mv "$legacy" "$HOME/.Trash/" && log "Moved $legacy to the Trash"
+      trashed="$HOME/.Trash/${legacy_name%.app} $(date +%Y%m%d-%H%M%S).app"
+      mv "$legacy" "$trashed" && log "Moved $legacy to the Trash"
     fi
   done
 else
