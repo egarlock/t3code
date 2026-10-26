@@ -1,5 +1,4 @@
 import {
-  ACP_LAUNCH_TOGGLE_OPTION_PREFIX,
   type ProviderDriverKind,
   type ProviderInstanceId,
   type ProviderOptionDescriptor,
@@ -11,6 +10,7 @@ import {
   buildProviderOptionSelectionsFromDescriptors,
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
+import { isLaunchToggleDescriptor } from "@t3tools/client-runtime/model-traits";
 import { PlugIcon } from "lucide-react";
 import { memo } from "react";
 
@@ -29,10 +29,6 @@ import { useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
 
 type BooleanDescriptor = Extract<ProviderOptionDescriptor, { type: "boolean" }>;
-
-export function isLaunchToggleDescriptor(descriptor: ProviderOptionDescriptor): boolean {
-  return descriptor.type === "boolean" && descriptor.id.startsWith(ACP_LAUNCH_TOGGLE_OPTION_PREFIX);
-}
 
 /** Trigger text: the checked toggle labels, or a neutral name when none are on. */
 export function launchTogglesTriggerLabel(toggles: ReadonlyArray<BooleanDescriptor>): string {
