@@ -21,6 +21,7 @@ import { resolveEnvModeLabel, WORKTREE_SUBMODULES_LABELS } from "../BranchToolba
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
 import { PULL_REQUEST_MERGE_METHOD_LABELS } from "../pullRequest/pullRequestDetail.logic";
+import { LaunchTogglesPicker } from "../chat/LaunchTogglesPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
@@ -185,6 +186,19 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 onPromptChange={() => {}}
                 modelOptions={selection.options ?? []}
                 allowPromptInjectedEffort={false}
+                planModeEnabled={settings.planModeEnabled}
+                triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                onModelOptionsChange={(options) =>
+                  setModel(createModelSelection(selection.instanceId, selection.model, options))
+                }
+              />
+            ) : null}
+            {!mixedModel ? (
+              <LaunchTogglesPicker
+                provider={activeEntry.driverKind}
+                models={activeEntry.models}
+                model={selection.model}
+                modelOptions={selection.options ?? []}
                 planModeEnabled={settings.planModeEnabled}
                 triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
                 onModelOptionsChange={(options) =>

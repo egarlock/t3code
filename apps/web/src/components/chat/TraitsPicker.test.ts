@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  ACP_LAUNCH_TOGGLE_OPTION_PREFIX,
   ProviderInstanceId,
   ProviderDriverKind,
   type ProviderOptionDescriptor,
@@ -66,6 +67,18 @@ function display(descriptors: ReadonlyArray<ProviderOptionDescriptor>) {
 }
 
 describe("buildTraitsTriggerDisplay", () => {
+  it("leaves launch toggles to their own dropdown", () => {
+    const toggle = (label: string, currentValue: boolean) => ({
+      id: `${ACP_LAUNCH_TOGGLE_OPTION_PREFIX}${label}`,
+      label,
+      type: "boolean" as const,
+      currentValue,
+    });
+    expect(display([EFFORT, toggle("ADO", true), toggle("Teams", false)])).toEqual({
+      label: "High",
+    });
+  });
+
   it("omits fast mode from the label entirely when it is off", () => {
     expect(display([EFFORT, fastModeDescriptor(false), CONTEXT_WINDOW])).toEqual({
       label: "High · 1M",
