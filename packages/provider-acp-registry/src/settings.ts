@@ -54,6 +54,15 @@ export const AcpRegistrySettings = makeProviderSettingsSchema(
         providerSettingsForm: { placeholder: "auto", clearWhenEmpty: "omit" },
       }),
     ),
+    iconUrl: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Custom icon",
+        description:
+          "Optional image data URL (data:image/svg+xml or data:image/png) shown in place of the default icon in the web and desktop apps.",
+        providerSettingsForm: { placeholder: "data:image/svg+xml,...", clearWhenEmpty: "omit" },
+      }),
+    ),
     distribution: AcpRegistryDistributionPreference.pipe(
       Schema.withDecodingDefault(Effect.succeed("auto")),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
@@ -72,7 +81,7 @@ export const AcpRegistrySettings = makeProviderSettingsSchema(
     ),
   },
   {
-    order: ["source", "agentId", "commandPath", "authMethodId"],
+    order: ["source", "agentId", "commandPath", "authMethodId", "iconUrl"],
   },
 );
 export type AcpRegistrySettings = typeof AcpRegistrySettings.Type;

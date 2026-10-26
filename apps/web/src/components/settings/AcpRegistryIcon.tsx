@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import {
+  resolveAcpProviderIconUrl,
   resolveOfficialAcpRegistryIconUrl,
   officialAcpRegistryIconUrlForAgentId,
 } from "@t3tools/contracts";
@@ -11,7 +12,11 @@ const ACP_REGISTRY_ICON_CACHE = "t3-acp-registry-icons-v1";
 const MAX_ICON_BYTES = 512 * 1_024;
 const inFlightIcons = new Map<string, Promise<Blob>>();
 
-export { officialAcpRegistryIconUrlForAgentId, resolveOfficialAcpRegistryIconUrl };
+export {
+  officialAcpRegistryIconUrlForAgentId,
+  resolveAcpProviderIconUrl,
+  resolveOfficialAcpRegistryIconUrl,
+};
 
 async function checkedIconBlob(response: Response): Promise<Blob> {
   if (!response.ok || response.redirected) throw new Error("ACP registry icon request failed.");
@@ -77,7 +82,10 @@ export function AcpRegistryAgentIcon({
   readonly fallbackClassName?: string;
 }) {
   const colorFilterId = useId();
-  const iconUrl = resolveOfficialAcpRegistryIconUrl(icon);
+  const iconUrl = resolveAcpProviderIconUrl(icon);
+  // User-configured inline images render as-is, in their own colors. Registry
+  // CDN icons are monochrome and get recolored to currentColor below.
+  const isInlineImage = iconUrl?.startsWith("data:") ?? false;
   const [image, setImage] = useState<{
     readonly iconUrl: string;
     readonly source: string;
@@ -88,11 +96,11 @@ export function AcpRegistryAgentIcon({
   // fetch succeeds, or the raw allowlisted CDN URL when it fails (the official
   // CDN serves no CORS headers, so the validating fetch is often blocked in
   // cross-origin browser contexts while native <img> loading still works).
-  const source = currentImage?.source ?? null;
+  const source = isInlineImage ? iconUrl : (currentImage?.source ?? null);
   const status = currentImage?.status ?? "loading";
 
   useEffect(() => {
-    if (iconUrl === null) return;
+    if (iconUrl === null || isInlineImage) return;
     let active = true;
     let objectUrl: string | null = null;
     void loadCachedAcpRegistryIcon(iconUrl)
@@ -111,7 +119,7 @@ export function AcpRegistryAgentIcon({
       active = false;
       if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
     };
-  }, [iconUrl]);
+  }, [iconUrl, isInlineImage]);
 
   return (
     <span
@@ -145,7 +153,7 @@ export function AcpRegistryAgentIcon({
             "size-full object-contain",
             status !== "loaded" && "invisible absolute inset-0",
           )}
-          style={{ filter: `url(#${colorFilterId})` }}
+          style={isInlineImage ? undefined : { filter: `url(#${colorFilterId})` }}
           decoding="async"
           referrerPolicy="no-referrer"
           src={source}
