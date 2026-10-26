@@ -102,7 +102,15 @@ function intern(table: string[], index: Map<string, number>, value: string): num
 
 function serializeFile(entry: CachedFile, tables: InternTables): SerializedFile {
   const serializeRecord = (record: UsageRecord): SerializedRecord => {
-    const row: SerializedRecord = [
+    const turnId = record.unresolvedServiceTierTurnId;
+    // aiCredits sits after the turn id slot, so pad that slot with null when needed.
+    const tail: readonly [] | readonly [string | null] | readonly [string | null, number] =
+      record.aiCredits !== undefined
+        ? [turnId ?? null, record.aiCredits]
+        : turnId !== undefined
+          ? [turnId]
+          : [];
+    return [
       record.timestampMs,
       intern(tables.models, tables.modelIndex, record.model),
       intern(tables.sessions, tables.sessionIndex, record.sessionId),
@@ -117,17 +125,8 @@ function serializeFile(entry: CachedFile, tables: InternTables): SerializedFile 
       record.rateModel === undefined
         ? null
         : intern(tables.models, tables.modelIndex, record.rateModel),
-      ...(record.unresolvedServiceTierTurnId === undefined
-        ? ([] as const)
-        : ([record.unresolvedServiceTierTurnId] as const)),
+      ...tail,
     ];
-    return record.aiCredits === undefined
-      ? row
-      : ([
-          ...row.slice(0, 12),
-          record.unresolvedServiceTierTurnId ?? null,
-          record.aiCredits,
-        ] as SerializedRecord);
   };
   return {
     s: entry.size,
