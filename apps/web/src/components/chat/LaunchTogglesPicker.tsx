@@ -19,12 +19,7 @@ import { cn } from "~/lib/utils";
 import { getProviderModelCapabilities } from "../../providerModels";
 import { Menu, MenuCheckboxItem, MenuGroup, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import {
-  ComposerControl,
-  ComposerControlChevron,
-  ComposerControlIcon,
-  type ComposerControlSize,
-} from "./ComposerControl";
+import { ComposerControl, ComposerControlIcon, type ComposerControlSize } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
 
@@ -48,24 +43,17 @@ export interface LaunchTogglesProps {
   model: string;
   models: ReadonlyArray<ServerProviderModel>;
   modelOptions: ReadonlyArray<ProviderOptionSelection> | undefined;
-  planModeEnabled: boolean;
   /** Saves outside the composer draft store, such as a settings default. */
   onModelOptionsChange?: (options: ReadonlyArray<ProviderOptionSelection> | undefined) => void;
+  /** Runs after a draft-store write, so an existing thread can adopt the pick right away. */
+  onDraftModelOptionsChange?: () => void;
 }
 
-function getLaunchToggleDescriptors(
-  props: Pick<
-    LaunchTogglesProps,
-    "provider" | "model" | "models" | "modelOptions" | "planModeEnabled"
-  >,
-) {
+type LaunchToggleSource = Pick<LaunchTogglesProps, "provider" | "model" | "models" | "modelOptions">;
+
+function getLaunchToggleDescriptors(props: LaunchToggleSource) {
   const descriptors = getProviderOptionDescriptors({
-    caps: getProviderModelCapabilities(
-      props.models,
-      props.model,
-      props.provider,
-      props.planModeEnabled,
-    ),
+    caps: getProviderModelCapabilities(props.models, props.model, props.provider),
     selections: props.modelOptions,
   });
   const toggles = descriptors.filter((descriptor): descriptor is BooleanDescriptor =>
@@ -74,12 +62,7 @@ function getLaunchToggleDescriptors(
   return { descriptors, toggles };
 }
 
-export function hasLaunchToggles(
-  props: Pick<
-    LaunchTogglesProps,
-    "provider" | "model" | "models" | "modelOptions" | "planModeEnabled"
-  >,
-): boolean {
+export function hasLaunchToggles(props: LaunchToggleSource): boolean {
   return getLaunchToggleDescriptors(props).toggles.length > 0;
 }
 
@@ -91,8 +74,8 @@ function useLaunchToggles({
   model,
   models,
   modelOptions,
-  planModeEnabled,
   onModelOptionsChange,
+  onDraftModelOptionsChange,
 }: LaunchTogglesProps) {
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const { descriptors, toggles } = getLaunchToggleDescriptors({
@@ -100,7 +83,6 @@ function useLaunchToggles({
     model,
     models,
     modelOptions,
-    planModeEnabled,
   });
   const setToggle = (id: string, checked: boolean) => {
     // Write every descriptor so the other composer options keep their values.
@@ -122,6 +104,7 @@ function useLaunchToggles({
       model,
       persistSticky: true,
     });
+    onDraftModelOptionsChange?.();
   };
   return { toggles, setToggle };
 }
@@ -190,7 +173,6 @@ export const LaunchTogglesPicker = memo(function LaunchTogglesPicker({
           <span data-composer-control-label className="min-w-0 truncate">
             {label}
           </span>
-          <ComposerControlChevron size={size} />
         </TooltipTrigger>
         <TooltipPopup side="top">Launch toggles: {label}</TooltipPopup>
       </Tooltip>

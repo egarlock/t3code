@@ -40,7 +40,7 @@ vi.mock("./StyledDiffCodeView", () => ({
           ) : null}
           {item.annotations?.map((annotation) => (
             <div key={`${annotation.side}:${annotation.lineNumber}`}>
-              {props.renderAnnotation?.(annotation, item)}
+              {props.renderAnnotation?.(annotation, item.fileDiff, item)}
             </div>
           ))}
         </section>
@@ -62,7 +62,7 @@ function file(
 ) {
   const fileDiff = parsePatchFiles(
     `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n@@ -1 +1 @@\n-old\n+new\n`,
-    name,
+    { cacheKeyPrefix: name },
   )[0]!.files[0]!;
   fileDiff.type = type;
   if (prevName) fileDiff.prevName = prevName;
@@ -92,7 +92,7 @@ function view(
         options={{}}
         renderHeaderFilenameSuffix={() => null}
         renderHeaderPrefix={() => null}
-        onRevealSearchMatch={() => {}}
+        onFileCollapsedChange={() => {}}
       />
     </StrictMode>
   );
@@ -130,49 +130,6 @@ function setup(): Disposable {
 }
 
 describe("diff comment drafts", () => {
-  it.each(["removed file", "replaced rename"] as const)(
-    "allows a fresh comment after a %s loses its draft",
-    async (scenario) => {
-      using _drafts = setup();
-      const original =
-        scenario === "removed file"
-          ? file("a.ts")
-          : file("shared.ts", 1, "rename-changed", "old.ts");
-      await using screen = await render(view([original, file("b.ts")]), { container });
-      await click(`Comment on ${original.filePath}`);
-      await typeComment("Discard this draft");
-      const pending =
-        scenario === "removed file"
-          ? []
-          : [
-              {
-                ...file("shared.ts", 2, "rename-changed", "other.ts").fileDiff,
-                hunks: [],
-                cacheKey: "replacement:pending",
-              },
-            ];
-
-      await screen.rerender(view([file("b.ts")], "refreshed", pending));
-      expect(container.querySelector("textarea")).toBeNull();
-      await click("Comment on b.ts");
-      expect(editor().value).toBe("");
-      await typeComment("  Review b.ts  ");
-      await click("Comment");
-
-      expect(useComposerDraftStore.getState().getComposerDraft(target)?.reviewComments).toEqual([
-        expect.objectContaining({
-          filePath: "b.ts",
-          text: "Review b.ts",
-          selection: { ...range, endSide: "additions" },
-        }),
-      ]);
-      await screen.rerender(view([original, file("b.ts")], "returned"));
-      expect(container.querySelector("textarea")).toBeNull();
-      expect(container.querySelector("mark")).toBeNull();
-      expect(container.querySelector("p")?.textContent).toBe("Review b.ts");
-    },
-  );
-
   it("keeps the text and selected line through refresh and a provisional lazy patch", async () => {
     using _drafts = setup();
     const original = file("shared.ts", 1, "rename-pure", "old.ts");

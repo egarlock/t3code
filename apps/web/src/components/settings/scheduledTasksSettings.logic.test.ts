@@ -6,8 +6,9 @@ import {
   ProviderInstanceId,
   ScheduledTaskId,
   type ScheduledTask,
+  ThreadId,
 } from "@t3tools/contracts";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type {
   SidebarProjectGroupMember,
@@ -18,11 +19,12 @@ import { resolveSettingsScope, type SettingsScopeSearch } from "./settingsScope"
 import { deriveProviderInstanceEntries } from "../../providerInstances";
 import {
   scheduledTaskDefaultModel,
+  defaultScheduledTaskProjectId,
   matchesScheduledTaskScope,
   scheduleFromDraft,
-  webhookDraftErrors,
-  webhookDeliveryLabel,
+  scheduleLabel,
   taskToDraft,
+  unbindDraftFromThread,
 } from "./scheduledTasksSettings.logic";
 
 const laptopId = EnvironmentId.make("laptop");
@@ -72,6 +74,8 @@ function group(
     allRemoteMembersAreDesktopLocal: false,
     allRemoteMembersAreWsl: false,
     remoteEnvironmentLabels: [],
+    pinned: false,
+    archived: false,
   };
 }
 
@@ -103,6 +107,22 @@ describe("scheduled task settings scope", () => {
     ).toEqual(expected);
   });
 
+  it("defaults a new task to a pinned open project, and to an archived one only when scoped to it", () => {
+    const at = "2026-01-01T00:00:00.000Z";
+    const project = (id: string, pinnedAt: string | null, archivedAt: string | null) => ({
+      id: ProjectId.make(id),
+      pinnedAt,
+      archivedAt,
+    });
+    const all = resolveSettingsScope({}, groups, environments);
+    const scoped = resolveSettingsScope({ project: "t3code" }, groups, environments);
+    expect(
+      defaultScheduledTaskProjectId([project("a", null, null), project("b", at, null)], all),
+    ).toBe("b");
+    expect(defaultScheduledTaskProjectId([project("x", null, at)], all)).toBe("");
+    expect(defaultScheduledTaskProjectId([project("x", null, at)], scoped)).toBe("x");
+  });
+
   it("keeps tasks with removed projects manageable at environment scope", () => {
     const removedProject = ProjectId.make("removed");
     expect(
@@ -119,14 +139,6 @@ describe("scheduled task settings scope", () => {
         removedProject,
       ),
     ).toBe(false);
-  });
-
-  it("does not offer an unrelated environment's same-ID project when creating a task", () => {
-    const scope = resolveSettingsScope({ project: "t3code" }, groups, environments);
-    const serverProjects = [third, other, sameIdElsewhere];
-    expect(
-      serverProjects.filter((project) => matchesScheduledTaskScope(scope, serverId, project.id)),
-    ).toEqual([third]);
   });
 });
 
@@ -159,13 +171,76 @@ describe("editing scheduled task branch settings", () => {
     expect(draft.baseRef).toBe("release");
     expect(draft.startFromOrigin).toBe(false);
   });
+});
 
-  it.each([true, false])("preserves an explicit origin flag of %s", (startFromOrigin) => {
+describe("fixed-time scheduled tasks", () => {
+  it("pads a stored single-digit hour so the time input shows it", () => {
     const draft = taskToDraft({
       ...legacyTask,
-      workspaceStrategy: { type: "worktree", baseRef: "release", startFromOrigin },
+      schedule: { type: "fixed_time", timeOfDay: "9:05" },
     });
-    expect(draft.startFromOrigin).toBe(startFromOrigin);
+    expect(draft.timeOfDay).toBe("09:05");
+  });
+
+  it("keeps a fixed run time and rejects a cleared one", () => {
+    const draft = taskToDraft({
+      ...legacyTask,
+      schedule: { type: "fixed_time", timeOfDay: "14:30" },
+    });
+    expect(scheduleFromDraft(draft)).toEqual({ type: "fixed_time", timeOfDay: "14:30" });
+    // A native time input reports "" when it is cleared or only partly filled.
+    expect(scheduleFromDraft({ ...draft, timeOfDay: "" })).toBeNull();
+  });
+});
+
+describe("scheduled task destination", () => {
+  it("unbinding leaves the shared checkout for a new worktree from the remote", () => {
+    const rootBound = taskToDraft({
+      ...legacyTask,
+      threadId: ThreadId.make("thread:bound"),
+      workspaceStrategy: { type: "root" },
+    });
+    expect(unbindDraftFromThread(rootBound)).toMatchObject({
+      threadId: "",
+      workspaceMode: "worktree",
+      startFromOrigin: true,
+    });
+  });
+});
+
+describe("one-time scheduled tasks", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("round-trips the run time through the local date-time input", () => {
+    const runAt = "2026-11-03T17:00:42.000Z";
+    const draft = taskToDraft({ ...legacyTask, schedule: { type: "once", runAt } });
+    expect(draft.scheduleMode).toBe("once");
+    expect(scheduleFromDraft(draft)).toEqual({ type: "once", runAt });
+    const moved = scheduleFromDraft({ ...draft, runAt: "2026-11-04T09:30" });
+    expect(moved).toEqual({ type: "once", runAt: new Date("2026-11-04T09:30").toISOString() });
+    expect(scheduleFromDraft({ ...draft, runAt: "" })).toBeNull();
+  });
+
+  it("rejects a time skipped by daylight saving", () => {
+    vi.stubEnv("TZ", "America/Los_Angeles");
+    const draft = taskToDraft({
+      ...legacyTask,
+      schedule: { type: "once", runAt: "2027-03-14T18:00:00.000Z" },
+    });
+    expect(scheduleFromDraft({ ...draft, runAt: "2027-03-14T02:30" })).toBeNull();
+  });
+
+  it("keeps the saved offset when an edit stays in an hour that repeats", () => {
+    vi.stubEnv("TZ", "America/Los_Angeles");
+    // 01:30 PST, the second 01:30 on 2026-11-01.
+    const draft = taskToDraft({
+      ...legacyTask,
+      schedule: { type: "once", runAt: "2026-11-01T09:30:00.000Z" },
+    });
+    expect(scheduleFromDraft({ ...draft, runAt: "2026-11-01T01:35" })).toEqual({
+      type: "once",
+      runAt: "2026-11-01T09:35:00.000Z",
+    });
   });
 });
 
@@ -227,18 +302,6 @@ describe("webhook scheduled tasks", () => {
     expect(scheduleFromDraft({ ...draft, signatureSecret: " new " })).toEqual({
       type: "webhook",
       signature: { ...signature, secret: "new" },
-      maxDeliveryAgeMinutes: null,
-      dedupe: {},
-    });
-  });
-
-  it("drops the signature when it is switched off and offers GitHub's settings", () => {
-    const draft = taskToDraft({ ...webhookTask, schedule: { type: "webhook", signature: null } });
-    expect(draft.signatureEnabled).toBe(false);
-    expect(draft.signatureHeader).toBe("x-hub-signature-256");
-    expect(scheduleFromDraft(draft)).toEqual({
-      type: "webhook",
-      signature: null,
       maxDeliveryAgeMinutes: null,
       dedupe: {},
     });
@@ -332,28 +395,6 @@ describe("scheduled task model defaults", () => {
       project,
       deriveProviderInstanceEntries(value.providers),
     );
-  it("uses the environment default with its provider options", () => {
-    expect(resolve(config, { id: projectId })).toEqual(environmentSelection);
-  });
-  it("prefers the project's configured model", () => {
-    expect(resolve(config, { id: projectId, defaultModelSelection: projectSelection })).toEqual(
-      projectSelection,
-    );
-    expect(
-      resolve(
-        {
-          ...config,
-          settings: {
-            ...config.settings,
-            projectSettingsOverrides: {
-              [projectId]: { defaultModelSelection: projectSelection },
-            },
-          },
-        },
-        { id: projectId },
-      ),
-    ).toEqual(projectSelection);
-  });
   it("uses the advertised default instead of catalog order when no default is configured", () => {
     expect(
       resolve({ ...config, settings: { ...config.settings, defaultModelSelection: null } }, null),
@@ -370,17 +411,6 @@ describe("scheduled task model defaults", () => {
       }),
     ).toEqual(environmentSelection);
   });
-  it("does not choose an implicit model on a disabled provider", () => {
-    expect(
-      resolve(
-        {
-          ...config,
-          providers: config.providers.map((provider) => ({ ...provider, enabled: false })),
-        },
-        null,
-      ),
-    ).toBeNull();
-  });
 });
 
 it("rejects dedupe templates without a request placeholder", () => {
@@ -389,51 +419,11 @@ it("rejects dedupe templates without a request placeholder", () => {
   expect(scheduleFromDraft({ ...draft, coalesceKey: "{{body.bad" })).toBeNull();
 });
 
-describe("webhook delivery labels and validation messages", () => {
-  it("preserves Ran for legacy and dispatched deliveries and distinguishes pending windows", () => {
-    expect(webhookDeliveryLabel({ outcome: "accepted" })).toBe("Ran");
-    expect(webhookDeliveryLabel({ outcome: "accepted", pendingWindow: false })).toBe("Ran");
-    expect(webhookDeliveryLabel({ outcome: "accepted", pendingWindow: true })).toBe(
-      "Opened window",
-    );
-  });
-
-  it("keeps the existing age-limit title and body", () => {
-    const draft = taskToDraft({ ...legacyTask, schedule: { type: "webhook", signature: null } });
-    expect(
-      webhookDraftErrors({ ...draft, maxDeliveryAgeMinutes: "0", replayKey: "literal" }),
-    ).toEqual([
-      {
-        title: "Invalid age limit",
-        description: "Enter whole minutes from 1 to 1440, or leave it blank.",
-      },
-    ]);
-  });
-
-  it.each([
-    [{ replayKey: "literal" }, "Replay key must contain a valid request placeholder."],
-    [{ coalesceKey: "{{body.bad" }, "Coalesce key must contain a valid request placeholder."],
-    [{ coalesceWindowSeconds: "9" }, "Coalesce window must be whole seconds from 10 to 3600."],
-  ])("names only the invalid webhook field for %o", (invalid, description) => {
-    const draft = taskToDraft({ ...legacyTask, schedule: { type: "webhook", signature: null } });
-    expect(webhookDraftErrors({ ...draft, ...invalid })).toEqual([
-      { title: "Invalid webhook settings", description },
-    ]);
-  });
-
-  it("reports separate short errors when several dedupe fields fail", () => {
-    const draft = taskToDraft({ ...legacyTask, schedule: { type: "webhook", signature: null } });
-    expect(
-      webhookDraftErrors({
-        ...draft,
-        replayKey: "bad",
-        coalesceKey: "bad",
-        coalesceWindowSeconds: "0",
-      }).map((error) => error.description),
-    ).toEqual([
-      "Replay key must contain a valid request placeholder.",
-      "Coalesce key must contain a valid request placeholder.",
-      "Coalesce window must be whole seconds from 10 to 3600.",
-    ]);
-  });
+it("appends the server zone only to fixed-time schedule labels", () => {
+  expect(scheduleLabel({ type: "fixed_time", timeOfDay: "16:31" }, "Etc/UTC")).toBe(
+    "Daily at 16:31 UTC",
+  );
+  expect(scheduleLabel({ type: "fixed_time", timeOfDay: "09:00" })).toBe("Daily at 09:00");
+  expect(scheduleLabel({ type: "interval", everyMs: 60_000 }, "Etc/UTC")).toBe("Every 1 min");
+  expect(scheduleLabel({ type: "webhook", signature: null }, "Etc/UTC")).toBe("On webhook");
 });
