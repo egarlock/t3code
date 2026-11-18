@@ -1,209 +1,75 @@
 import { EnvironmentId, ThreadId, TurnItemId } from "@t3tools/contracts";
-import { expect, it, vi } from "vite-plus/test";
-import { page, userEvent } from "vite-plus/test/browser";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
+import { act, fakeTimers, render } from "../../../test/render";
 
-// The app asks for full screen from its button. It also focuses its own frame
-// and asks on load, right after it is told it left full screen, and whenever
-// it loses focus while inline. It reports each answer to the page with a
-// message the host ignores.
-const APP_HTML = `<!doctype html><button>Open full screen</button><script>
-let nextId = 0;
-const pending = new Map();
-const request = (method, params) =>
-  new Promise((resolve) => {
-    nextId += 1;
-    pending.set(nextId, resolve);
-    parent.postMessage({ jsonrpc: "2.0", id: nextId, method, params }, "*");
-  });
-let mode = "inline";
-const askFullscreen = async (source) => {
-  const answer = await request("ui/request-display-mode", { mode: "fullscreen" });
-  mode = answer.mode;
-  parent.postMessage({ probe: source + ":" + answer.mode }, "*");
-};
-const button = document.querySelector("button");
-button.onclick = () => askFullscreen("tap");
-const refocusAndAsk = (source) => {
-  button.focus();
-  void askFullscreen(source);
-};
-addEventListener("message", ({ data }) => {
-  if (data === "retry") return refocusAndAsk("retry");
-  if (pending.has(data.id)) {
-    pending.get(data.id)(data.result);
-    pending.delete(data.id);
-    return;
+// Asks to close twice when told to, and answers only the first teardown, so
+// the second one is left to finish on the host's timeout.
+const APP_HTML = `<script>
+let answered = false;
+addEventListener("message", (event) => {
+  const message = event.data;
+  if (message === "close") {
+    parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/request-teardown" }, "*");
+    parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/request-teardown" }, "*");
+  } else if (message?.method === "ui/resource-teardown" && !answered) {
+    answered = true;
+    parent.postMessage({ jsonrpc: "2.0", id: message.id, result: {} }, "*");
   }
-  if (data.method !== "ui/notifications/host-context-changed") return;
-  const left = mode === "fullscreen" && data.params.displayMode === "inline";
-  mode = data.params.displayMode ?? mode;
-  if (left) refocusAndAsk("exit");
 });
-// Focus can only be taken back once the browser has finished moving it away.
-addEventListener("blur", () => {
-  if (mode === "inline") setTimeout(() => refocusAndAsk("blur"));
-});
-void request("ui/initialize", { protocolVersion: "2026-01-26", appCapabilities: {} }).then(() => {
-  parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} }, "*");
-  refocusAndAsk("load");
-});
+parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/initialized" }, "*");
 </script>`;
 
-vi.mock(import("../../assets/assetUrls"), async (original) => ({
-  ...(await original()),
-  useAssetUrlState: (() => ({
+vi.mock(import("~/assets/longLivedAssetUrls"), () => ({
+  useLongLivedAssetUrl: () => ({
     _tag: "Success",
     url: `data:text/html,${encodeURIComponent(APP_HTML)}`,
     expiresAt: Date.now() + 60 * 60_000,
-  })) as never,
-  useAssetUrlRefresh: (() => async () => null) as never,
-}));
-vi.mock(import("../../state/queries"), async (original) => ({
-  ...(await original()),
-  useTurnItemDetail: (() => ({ data: undefined })) as never,
-}));
-vi.mock(import("../../state/use-atom-command"), async (original) => ({
-  ...(await original()),
-  useAtomCommand: (() => async () => ({ _tag: "Failure", cause: undefined })) as never,
-}));
-vi.mock(import("../../hooks/useHtmlRenderTheme"), async (original) => ({
-  ...(await original()),
-  useHtmlRenderTheme: (() => ({ appearance: "light", variables: {} })) as never,
+  }),
 }));
 
-import { render as renderUi } from "../../../test/render";
 import { McpAppFrame } from "./McpAppFrame";
 
-function setup() {
-  let skew = 0;
-  // Advance the host cooldown without manufacturing browser user activation.
-  const now = performance.now.bind(performance);
-  const clock = vi.spyOn(performance, "now").mockImplementation(() => now() + skew);
-  const answers: string[] = [];
-  let answered: (() => void) | undefined;
-  const onProbe = (event: MessageEvent) => {
-    const probe = (event.data as { readonly probe?: unknown } | null)?.probe;
-    if (typeof probe !== "string") return;
-    answers.push(probe);
-    answered?.();
-  };
-  window.addEventListener("message", onProbe);
-  const nextAnswer = async (action: () => Promise<unknown>) => {
-    const seen = answers.length;
-    const answer = new Promise<string>((resolve) => {
-      answered = () => {
-        if (answers.length > seen) resolve(answers[seen]!);
-      };
-    });
-    await action();
-    return answer;
-  };
+const nextInitializedFrom = () =>
+  new Promise<MessageEventSource>((resolve) => {
+    const listen = (event: MessageEvent) => {
+      if (event.source === null || event.data?.method !== "ui/notifications/initialized") return;
+      window.removeEventListener("message", listen);
+      resolve(event.source);
+    };
+    window.addEventListener("message", listen);
+  });
 
-  const isFullscreen = () => document.querySelector("[data-mcp-app-fullscreen]") !== null;
-
-  const renderApp = async () => {
-    return renderUi(
+describe("McpAppFrame", () => {
+  it("keeps a reopened app when the old document's second teardown finishes late", async () => {
+    const firstInitialized = nextInitializedFrom();
+    await using screen = await render(
       <McpAppFrame
-        environmentId={EnvironmentId.make("env")}
+        environmentId={EnvironmentId.make("environment")}
         threadId={ThreadId.make("thread")}
         conversationThreadId={ThreadId.make("thread")}
         itemId={TurnItemId.make("item")}
         revision="1"
-        app={{ attachmentId: "app", server: "srv", tool: "show", resourceUri: "ui://srv/app" }}
+        app={{
+          attachmentId: "attachment",
+          server: "Demo",
+          tool: "show",
+          resourceUri: "ui://demo/app",
+        }}
         onSendMessage={undefined}
       />,
     );
-  };
+    const firstApp = await firstInitialized;
+    using _timers = fakeTimers();
 
-  const retry = () =>
-    nextAnswer(async () => {
-      document.querySelector("iframe")!.contentWindow!.postMessage("retry", "*");
-    });
+    (firstApp as Window).postMessage("close", "*");
+    await userEvent.click(screen.getByRole("button", { name: "Show app" }));
+    await expect.element(screen.getByTitle("Demo app")).toBeInTheDocument();
 
-  return {
-    renderApp,
-    nextAnswer,
-    retry,
-    isFullscreen,
-    advance: (ms: number) => {
-      skew += ms;
-    },
-    [Symbol.dispose]() {
-      window.removeEventListener("message", onProbe);
-      clock.mockRestore();
-    },
-  };
-}
-
-it("keeps load and idle retries inline even after the page-input cooldown", async () => {
-  using fixture = setup();
-  await using screens = new AsyncDisposableStack();
-  const { renderApp, nextAnswer, retry, isFullscreen, advance } = fixture;
-  expect(
-    await nextAnswer(async () => {
-      screens.use(await renderApp());
-    }),
-  ).toBe("load:inline");
-  advance(5_000);
-  expect(await retry()).toBe("retry:inline");
-  expect(await retry()).toBe("retry:inline");
-  expect(isFullscreen()).toBe(false);
-});
-
-it("allows an app click immediately after loading on an idle page", async () => {
-  using fixture = setup();
-  await using screens = new AsyncDisposableStack();
-  const { renderApp, nextAnswer, isFullscreen } = fixture;
-  expect(
-    await nextAnswer(async () => {
-      screens.use(await renderApp());
-    }),
-  ).toBe("load:inline");
-  const appButton = page
-    .frameLocator(page.getByTitle("srv app"))
-    .getByRole("button", { name: "Open full screen" });
-  expect(await nextAnswer(() => userEvent.click(appButton))).toBe("tap:fullscreen");
-  expect(isFullscreen()).toBe(true);
-});
-
-it("opens full screen only from a tap in the app, never from activation the page got elsewhere", async () => {
-  using fixture = setup();
-  await using screens = new AsyncDisposableStack();
-  const { renderApp, nextAnswer, isFullscreen, advance } = fixture;
-  const appButton = page
-    .frameLocator(page.getByTitle("srv app"))
-    .getByRole("button", { name: "Open full screen" });
-  const elsewhere = document.body.appendChild(document.createElement("button"));
-  using _elsewhere = { [Symbol.dispose]: () => elsewhere.remove() };
-  elsewhere.textContent = "Elsewhere";
-  const tapApp = async () => {
-    advance(5_000);
-    expect(await nextAnswer(() => userEvent.click(appButton))).toBe("tap:fullscreen");
-    expect(isFullscreen()).toBe(true);
-  };
-
-  // The click that opens a thread still activates the page as its app loads.
-  const load = nextAnswer(async () => {
-    await userEvent.click(elsewhere);
-    screens.use(await renderApp());
+    await act(() => vi.advanceTimersByTimeAsync(2_000));
+    expect(screen.getByRole("button", { name: "Show app" }).query()).toBeNull();
+    await expect.element(screen.getByTitle("Demo app")).toBeInTheDocument();
   });
-  expect(await load).toBe("load:inline");
-  expect(isFullscreen()).toBe(false);
-
-  await tapApp();
-  const exit = page.getByRole("button", { name: "Exit full screen" });
-  expect(await nextAnswer(() => userEvent.click(exit))).toBe("exit:inline");
-  expect(isFullscreen()).toBe(false);
-
-  advance(5_000);
-  expect(await nextAnswer(() => userEvent.click(elsewhere))).toBe("blur:inline");
-  expect(isFullscreen()).toBe(false);
-
-  // Escape activates nothing, but the tap that opened full screen still does.
-  await tapApp();
-  (await exit.element()).focus();
-  expect(await nextAnswer(() => userEvent.keyboard("{Escape}"))).toBe("exit:inline");
-  expect(isFullscreen()).toBe(false);
 });
